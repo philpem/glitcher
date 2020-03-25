@@ -1,0 +1,28 @@
+#
+# Building Optiboot:
+#
+#   export ENV=arduino && make clean && make AVR_FREQ=14318180L BAUD_RATE=57600 LED=D6 atmega328_14 && cp optiboot_atmega328.hex ../optiboot_14m31_atmega328p.hex
+#
+
+glitcher.name=Chip Glitcher
+
+glitcher.upload.tool=arduino:avrdude
+glitcher.upload.protocol=arduino
+glitcher.upload.maximum_size=32256
+glitcher.upload.maximum_data_size=2048
+glitcher.upload.speed=57600
+
+glitcher.bootloader.tool=arduino:avrdude
+glitcher.bootloader.low_fuses=0xff
+glitcher.bootloader.high_fuses=0xde
+glitcher.bootloader.extended_fuses=0xfd
+glitcher.bootloader.unlock_bits=0x3F
+glitcher.bootloader.lock_bits=0x0F
+glitcher.bootloader.file=optiboot_14m31_atmega328p.hex
+
+glitcher.build.mcu=atmega328p
+glitcher.build.f_cpu=14318180L
+glitcher.build.board=AVR_GLITCHER
+glitcher.build.core=arduino:arduino
+glitcher.build.variant=arduino:standard
+

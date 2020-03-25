@@ -1,0 +1,3 @@
+[submodule "hardware/glitcher/avr/bootloaders/optiboot"]
+	path = hardware/glitcher/avr/bootloaders/optiboot
+	url = https://github.com/philpem/optiboot-glitcher.git
