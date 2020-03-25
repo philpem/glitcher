@@ -4,6 +4,11 @@
 #include "smartcard.h"
 #include "utils.h"
 
+
+// Define this to display APDU rx/tx data
+#define APDU_DEBUG_DATA
+
+
 // Smartcard serial port
 SoftwareSerialParity scSerial(CARD_DATA_RX_PIN, CARD_DATA_TX_PIN);
 
@@ -137,10 +142,6 @@ void scWriteByte(uint8_t b)
 
 
 
-
-//#define APDU_DEBUG
-#define APDU_DEBUG_DATA
-
 /**
  * Send an APDU to the card.
  */
@@ -234,9 +235,6 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 			return sw;
 		}
 
-#ifdef APDU_DEBUG
-		Serial.println("DoXfer");
-#endif
 		// any bytes to transfer?
 		while (ntt > 0) {
 			if (isSend) {
