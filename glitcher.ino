@@ -133,15 +133,17 @@ void setup() {
 	// Sky 07 cards don't seem to check the classcode. ???
 	uint8_t cla = 0x53;
 	{
-		Serial.println();
-		Serial.print("CLA ");
-		Serial.print(cla, HEX);
-		Serial.print(": ");
+		//Serial.println();
+		//Serial.print("CLA ");
+		//Serial.print(cla, HEX);
+		//Serial.print(": ");
 
 		//uint8_t ins = 0x70; {
 		for (uint16_t ins=0x6c; ins<0xFE; ins += 2) {
 			// INS is only valid if LSBit = 0 and MSN is not 6 or 9
-			if ( ((ins >> 8) == 6) || ((ins >> 8) == 9) || (ins & 1)) {
+			if ( ((ins >> 4) == 6) || ((ins >> 4) == 9) || (ins & 1)) {
+				Serial.print("skipping invalid INS ");
+				Serial.println(ins, HEX);
 				continue;
 			}
 
@@ -152,7 +154,7 @@ void setup() {
 				continue;
 			}
 
-			uint16_t sw1sw2 = cardSendApdu(cla, ins, 0, 0, 1, buf, APDU_RECV);
+			uint16_t sw1sw2 = cardSendApdu(cla, ins, 0, 0, 0xf0, buf, APDU_RECV);
 
 				Serial.print(cla, HEX);
 				Serial.print('/');

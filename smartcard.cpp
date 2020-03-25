@@ -138,7 +138,8 @@ void scWriteByte(uint8_t b)
 
 
 
-#define APDU_DEBUG
+//#define APDU_DEBUG
+#define APDU_DEBUG_DATA
 
 /**
  * Send an APDU to the card.
@@ -150,7 +151,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 	uint8_t ntt;
 	uint16_t sw;
 
-#ifdef APDU_DEBUG
+#ifdef APDU_DEBUG_DATA
 	// Debug, print apdu header
 	Serial.print(">> ");
 	printHex(cla); Serial.print(' ');
@@ -184,39 +185,51 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		
 		// read procedure byte
 		val = scReadByte(200);	// FIXME need to figure out what the byte timeout should be
+		
 		// check for timeout
 		if (val == -1) {
 			//Serial.println("PROC tmo");
 			return 0xFFFF;		// procedure-byte timeout
 		}
 
+#ifdef APDU_DEBUG_DATA
+		printHex(val);
+		Serial.print(" ");
+#endif
+
 		if ((val == ~ins) || (val == ~(ins+1))) {
 			// Transfer one data byte
 			// TODO: vpp
-			//Serial.println("XFER 1");
+#ifdef APDU_DEBUG_DATA
+			Serial.print("[XFER 1] ");
+#endif
 			ntt = 1;
 		} else if ((val == ins) || (val == (ins+1))) {
 			// All remaining data bytes are transferred.
 			// TODO: vpp
-			//Serial.print(ins, HEX);
-			//Serial.println("--> XFER ALL");
+#ifdef APDU_DEBUG_DATA
+			Serial.print("[XFER ALL] ");
+#endif
 			ntt = (len - n);
 		} else if (val == 0x60) {
 			// NOP, wait for another procedure byte
-			//Serial.println("NOP");
+#ifdef APDU_DEBUG_DATA
+			Serial.print("[NOP/BUSY] ");
+#endif
 			continue;
 		} else if (((val & 0xF0) == 0x60) || ((val & 0xF0) == 0x90)) {
-#ifdef APDU_DEBUG
-			Serial.print("SW1: ");
-			Serial.print(val, HEX);
-			Serial.println("...");
+#ifdef APDU_DEBUG_DATA
+			Serial.print("[SW1] ");
 #endif
-			// SW1 received but not 0x60. save SW1 in MSB.
+			// SW1 received... save SW1 in MSB and receive SW2
 			sw = (val << 8);
-
-			// receive SW2
 			val = scReadByte();	// FIXME need to figure out what the byte timeout should be
 
+#ifdef APDU_DEBUG_DATA
+			printHex(val);
+			Serial.println(" [SW2]");
+#endif
+			// combine SW1, SW2 and return
 			sw = sw | val;
 			return sw;
 		}
@@ -234,20 +247,27 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 				val = scReadByte(); // FIXME need to figure out what the byte timeout should be
 				if (val == -1) {
 					// Timeout
-#ifdef APDU_DEBUG
-					Serial.print("[RX TIMEOUT]\n");
+#ifdef APDU_DEBUG_DATA
+					Serial.print("[RX TIMEOUT]");
 #endif
 					len = 0;
 					break;
+				} else {
+					buf[n++] = val;
+#ifdef APDU_DEBUG_DATA
+					printHex(val);
+					Serial.print(" ");
+#endif
 				}
-				buf[n++] = val;
 			}
 			
 			ntt--;
 		}
 	}
 
-#ifdef APDU_DEBUG
+#ifdef APDU_DEBUG_DATA
+	Serial.println("");
+	
 	// APDU debug, received data
 	Serial.print("<< ");
 	printHexBuf(buf, n);
@@ -267,7 +287,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		sw = sw | val;
 	}
 
-#ifdef APDU_DEBUG
+#ifdef APDU_DEBUG_DATA
 	// APDU debug, SW1:SW2
 	Serial.print(" [");
 	Serial.print(sw, HEX);
