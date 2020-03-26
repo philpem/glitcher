@@ -115,6 +115,16 @@ inline static void scClockN(const int n)
 
 }
 
+/**
+ * Fire the oscilloscope trigger.
+ */
+inline static void triggerPulse(void)
+{
+	digitalWrite(SCOPE_TRIGGER_PIN, HIGH);
+	digitalWrite(SCOPE_TRIGGER_PIN, HIGH);
+	digitalWrite(SCOPE_TRIGGER_PIN, LOW);
+}
+
 
 /**
  * SMARTCARD: Set reset line state.

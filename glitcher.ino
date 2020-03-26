@@ -163,7 +163,7 @@ void setup() {
 				Serial.print(sw1sw2, HEX);
 				Serial.println();
 
-			if (sw1sw2 == 0xFFFF) {
+			if (sw1sw2 >= 0xFFF0) {
 				Serial.println("comms err, rebooting card");
 				// reset and ATR, comms error
 				scReset(true);
@@ -193,9 +193,7 @@ void setup() {
 
 	Serial.println("Read CSN...");
 
-	digitalWrite(SCOPE_TRIGGER_PIN, HIGH);
-	digitalWrite(SCOPE_TRIGGER_PIN, HIGH);
-	digitalWrite(SCOPE_TRIGGER_PIN, LOW);
+	triggerPulse();
 	
 	sw1sw2 = cardSendApdu(0x53, 0x70, 0, 0, 6, apduBuf, APDU_RECV);
 	Serial.print("send apdu, sw1sw2: ");

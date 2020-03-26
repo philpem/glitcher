@@ -63,6 +63,8 @@ void cardPower(const uint8_t on)
 	}
 }
 
+// debug: trigger the scope on the first ATR byte
+#define ATR_SCOPE_TRIG_FIRSTBYTE
 
 /**
  * Get the ATR from the card.
@@ -83,6 +85,12 @@ int cardGetAtr(uint8_t *buf)
 		if (val == -1) {
 			continue;
 		}
+
+#ifdef ATR_SCOPE_TRIG_FIRSTBYTE
+	if (n == 0) {
+		triggerPulse();
+	}
+#endif
 
 		// convert from inverse convention and save
 		val = _inverse(val);
@@ -273,7 +281,12 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 
 	// If there was a receive timeout, SW1:SW2 are probably the last two bytes sent
 	if (ntt > 0) {
-		sw = (buf[n-2] << 8) | buf[n-1];
+		if (n >= 2) {
+			sw = (buf[n-2] << 8) | buf[n-1];
+		} else {
+			// Insufficient bytes received, rx timeout
+			sw = 0xFFFE;
+		}
 	} else {
 		// payload is followed by SW1:SW2
 		val = scReadByte();	// FIXME need to figure out what the byte timeout should be
