@@ -36,6 +36,9 @@ void cardInit(void)
 {
 	// init smartcard serial
 	scSerial.begin(9600, ODD, 2);	// 9600bd 8E2, defaults to listening
+
+	// turn listening off
+	scSerial.stopListening();
 }
 
 
@@ -159,28 +162,28 @@ void scWriteByte(uint8_t b)
 /**
  * Send an APDU to the card.
  */
-uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t len, uint8_t *buf, bool isSend)
+uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t len, uint8_t *buf, bool isSend, bool debug)
 {
 	int val;
 	uint8_t n = 0;
 	uint8_t ntt;
 	uint16_t sw;
 
-#ifdef APDU_DEBUG_DATA
-	// Debug, print apdu header
-	Serial.print(">> ");
-	printHex(cla); Serial.print(' ');
-	printHex(ins); Serial.print(' ');
-	printHex(p1 ); Serial.print(' ');
-	printHex(p2 ); Serial.print(' ');
-	printHex(len); Serial.print(' ');
-	if (isSend) {
-		Serial.print(' ');
-		printHexBuf(buf, len);
+	if (debug) {
+		// Debug, print apdu header
+		Serial.print(">> ");
+		printHex(cla); Serial.print(' ');
+		printHex(ins); Serial.print(' ');
+		printHex(p1 ); Serial.print(' ');
+		printHex(p2 ); Serial.print(' ');
+		printHex(len); Serial.print(' ');
+		if (isSend) {
+			Serial.print(' ');
+			printHexBuf(buf, len);
+		}
+		Serial.println();
 	}
-	Serial.println();
-#endif
-	
+		
 	// Send ISO7816 APDU header -- CLA, INS, P1, P2, LEN
 	scSerial.stopListening();
 	scWriteByte(cla);
@@ -208,43 +211,45 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 			goto done;
 		}
 
-#ifdef APDU_DEBUG_DATA
-		printHex(val);
-		Serial.print(" ");
-#endif
+		if (debug) {
+			printHex(val);
+			Serial.print(" ");
+		}
 
 		if ((val == ~ins) || (val == ~(ins+1))) {
 			// Transfer one data byte
 			// TODO: vpp
-#ifdef APDU_DEBUG_DATA
-			Serial.print("[XFER 1] ");
-#endif
+			if (debug) {
+				Serial.print("[XFER 1] ");
+			}
 			ntt = 1;
 		} else if ((val == ins) || (val == (ins+1))) {
 			// All remaining data bytes are transferred.
 			// TODO: vpp
-#ifdef APDU_DEBUG_DATA
-			Serial.print("[XFER ALL] ");
-#endif
+			if (debug) {
+				Serial.print("[XFER ALL] ");
+			}
 			ntt = (len - n);
 		} else if (val == 0x60) {
 			// NOP, wait for another procedure byte
-#ifdef APDU_DEBUG_DATA
-			Serial.print("[NOP/BUSY] ");
-#endif
+			if (debug) {
+				Serial.print("[NOP/BUSY] ");
+			}
 			continue;
 		} else if (((val & 0xF0) == 0x60) || ((val & 0xF0) == 0x90)) {
-#ifdef APDU_DEBUG_DATA
-			Serial.print("[SW1] ");
-#endif
+			if (debug) {
+				Serial.print("[SW1] ");
+			}
+
 			// SW1 received... save SW1 in MSB and receive SW2
 			sw = (val << 8);
 			val = scReadByte();	// FIXME need to figure out what the byte timeout should be
 
-#ifdef APDU_DEBUG_DATA
-			printHex(val);
-			Serial.println(" [SW2]");
-#endif
+			if (debug) {
+				printHex(val);
+				Serial.println(" [SW2]");
+			}
+
 			// combine SW1, SW2 and return
 			sw = sw | val;
 			goto done;
@@ -260,17 +265,17 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 				val = scReadByte(); // FIXME need to figure out what the byte timeout should be
 				if (val == -1) {
 					// Timeout
-#ifdef APDU_DEBUG_DATA
-					Serial.print("[RX TIMEOUT]");
-#endif
+					if (debug) {
+						Serial.print("[RX TIMEOUT]");
+					}
 					len = 0;
 					break;
 				} else {
 					buf[n++] = val;
-#ifdef APDU_DEBUG_DATA
-					printHex(val);
-					Serial.print(" ");
-#endif
+					if (debug) {
+						printHex(val);
+						Serial.print(" ");
+					}
 				}
 			}
 			
@@ -278,13 +283,13 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		}
 	}
 
-#ifdef APDU_DEBUG_DATA
-	Serial.println("");
-	
-	// APDU debug, received data
-	Serial.print("<< ");
-	printHexBuf(buf, n);
-#endif
+	if (debug) {
+		Serial.println("");
+		
+		// APDU debug, received data
+		Serial.print("<< ");
+		printHexBuf(buf, n);
+	}
 
 	// If there was a receive timeout, SW1:SW2 are probably the last two bytes sent
 	if (ntt > 0) {
@@ -305,13 +310,14 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		sw = sw | val;
 	}
 
-#ifdef APDU_DEBUG_DATA
-	// APDU debug, SW1:SW2
-	Serial.print(" [");
-	Serial.print(sw, HEX);
-	Serial.println("]");
-#endif
+	if (debug) {
+		// APDU debug, SW1:SW2
+		Serial.print(" [");
+		Serial.print(sw, HEX);
+		Serial.println("]");
+	}
 
+// error/ok exit
 done:
 	scSerial.stopListening();
 	
