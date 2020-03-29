@@ -138,6 +138,14 @@ void handle_cmd84(String *cmdline)
 }
 
 
+void handle_off(String *cmdline)
+{
+	Serial.print("Powering off card... ");
+	cardPower(0);
+	Serial.println("done.");
+}
+
+
 void handle_reset(String *cmdline)
 {
 	doResetAndATR();
@@ -212,14 +220,16 @@ void handle_scan_ins(String *cmdline)
 
 // command definition entry
 typedef struct {
-	char cmd[32];
+	const char *cmd;
 	void (*callback)(String *s);
 } CMD;
 
 // command definitions
 const CMD COMMANDS[] = {
 	{ "cmd84",		handle_cmd84 },
-	{ "reset",		handle_reset },			// Reset and ATR
+	{ "off",		handle_off },			// Card power off
+	{ "on",			handle_reset },			// Power on, Reset and ATR
+	{ "reset",		handle_reset },			// Power on, Reset and ATR
 	{ "scanins",	handle_scan_ins },		// Scan for instructions
 	{ "serial",		handle_serial },		// Read serial number and card issue
 	{ "", NULL }
