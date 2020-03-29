@@ -96,21 +96,15 @@ void doResetAndATR(void)
 	Serial.println();
 }
 
-
-void handle_cmd84(String *cmdline)
+void doSerialNumber(void)
 {
-	Serial.println("CMD84 run -- based on 84CMD.C");
-
-	uint8_t buf[256];
+	uint8_t buf[8];
 	uint16_t sw1sw2;
-
-	doResetAndATR();
-
+	
 	// read serial number
 	sw1sw2 = cardSendApdu(0x53, 0x70, 0, 0, 6, buf, APDU_RECV);
 	Serial.print("Card issue:  ");
 	Serial.println(buf[0] & 0x0F);
-	Serial.println();
 	
 	unsigned long serial =
 		((unsigned long)buf[1] << 24) |
@@ -121,6 +115,18 @@ void handle_cmd84(String *cmdline)
 	Serial.print(serial);
 	Serial.println("x");
 	Serial.println();
+}
+
+
+void handle_cmd84(String *cmdline)
+{
+	Serial.println("CMD84 run -- based on 84CMD.C");
+
+	uint8_t buf[256];
+	uint16_t sw1sw2;
+
+	doResetAndATR();
+	doSerialNumber();
 						
 
 	// send...
@@ -135,6 +141,12 @@ void handle_cmd84(String *cmdline)
 void handle_reset(String *cmdline)
 {
 	doResetAndATR();
+}
+
+
+void handle_serial(String *cmdline)
+{
+	doSerialNumber();
 }
 
 
@@ -206,9 +218,10 @@ typedef struct {
 
 // command definitions
 const CMD COMMANDS[] = {
-	{ "cmd84", handle_cmd84 },
-	{ "reset", handle_reset },			// Reset and ATR
-	{ "scanins", handle_scan_ins },		// Scan for instructions
+	{ "cmd84",		handle_cmd84 },
+	{ "reset",		handle_reset },			// Reset and ATR
+	{ "scanins",	handle_scan_ins },		// Scan for instructions
+	{ "serial",		handle_serial },		// Read serial number and card issue
 	{ "", NULL }
 };
 
@@ -224,7 +237,7 @@ void menu(void)
 		p++;
 	}
 
-	Serial.print("> ");
+	Serial.print("\n> ");
 
 	while (Serial.available() == 0) {} 
 	String s = Serial.readString();
@@ -234,7 +247,7 @@ void menu(void)
 
 	// echo the command line
 	Serial.println(s);
-
+	Serial.println();
 
 
 	// parse the command string
