@@ -66,6 +66,38 @@ void cardPower(const uint8_t on)
 	}
 }
 
+
+/**
+ * Read byte from smartcard
+ */
+int scReadByte(int timeout_ms)
+{
+	unsigned long tdone = millis() + timeout_ms;	// FIXME need to figure out what the procedure byte timeout should be
+	int val = -1;
+	
+	while ((millis() < tdone) && (val == -1)) {
+		val = scSerial.read();
+	}
+	if (millis() >= tdone) {
+		// timeout
+		return -1;
+	} else {
+		// TODO if Direct convention, return without inverting byte/bit convention
+		return _inverse(val);
+	}
+}
+
+
+/**
+ * Write byte to smartcard
+ */
+void scWriteByte(uint8_t b)
+{
+	// TODO if Direct convention, send without inverting byte/bit convention
+	scSerial.write(_inverse(b));
+}
+
+
 // debug: trigger the scope on the first ATR byte
 #define ATR_SCOPE_TRIG_FIRSTBYTE
 
@@ -79,6 +111,9 @@ int cardGetAtr(uint8_t *buf)
 	int atrLen = 2;		// TS and T0 are mandatory
 
 	// overall timeout. ISO7816 says ATR should start transmitting after max 20ms
+	//  = 40,000 clock cycles
+	//  = 11.17ms at 3.579545MHz
+	// (we double this for safety)
 	unsigned long atrWait = millis() + 20;
 
 	// start listening for ATR data
@@ -132,32 +167,15 @@ int cardGetAtr(uint8_t *buf)
 	return n;
 }
 
-
-int scReadByte(int timeout_ms)
-{
-	unsigned long tdone = millis() + timeout_ms;	// FIXME need to figure out what the procedure byte timeout should be
-	int val = -1;
-	
-	while ((millis() < tdone) && (val == -1)) {
-		val = scSerial.read();
-	}
-	if (millis() >= tdone) {
-		// timeout
-		return -1;
-	} else {
-		// TODO if Direct convention, return without inverting byte/bit convention
-		return _inverse(val);
-	}
-}
-
-
-void scWriteByte(uint8_t b)
-{
-	// TODO if Direct convention, send without inverting byte/bit convention
-	scSerial.write(_inverse(b));
-}
-
-
+/**
+ * This is the Waiting Time -- WT. ISO7816-3:2006 section 7.2 and 10.2.
+ * 
+ * WT = WI x 960 x (Fi/f)
+ * WT = WI x 960 x (372 / 3579545)
+ * WT = 10 x 960 x (372 / 3579545)
+ * WT = 1 second
+ */
+#define APDU_RX_TIMEOUT 1000
 
 /**
  * Send an APDU to the card.
@@ -183,7 +201,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		}
 		Serial.println();
 	}
-		
+
 	// Send ISO7816 APDU header -- CLA, INS, P1, P2, LEN
 	scSerial.stopListening();
 	scWriteByte(cla);
@@ -202,7 +220,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		ntt = 0;
 		
 		// read procedure byte
-		val = scReadByte(200);	// FIXME need to figure out what the byte timeout should be
+		val = scReadByte(APDU_RX_TIMEOUT);	// FIXME need to figure out what the byte timeout should be
 		
 		// check for timeout
 		if (val == -1) {
@@ -243,7 +261,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 
 			// SW1 received... save SW1 in MSB and receive SW2
 			sw = (val << 8);
-			val = scReadByte();	// FIXME need to figure out what the byte timeout should be
+			val = scReadByte(APDU_RX_TIMEOUT);	// FIXME need to figure out what the byte timeout should be
 
 			if (debug) {
 				printHex(val);
@@ -262,7 +280,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 				scWriteByte(buf[n++]);
 			} else {
 				// receive
-				val = scReadByte(); // FIXME need to figure out what the byte timeout should be
+				val = scReadByte(APDU_RX_TIMEOUT); // FIXME need to figure out what the byte timeout should be
 				if (val == -1) {
 					// Timeout
 					if (debug) {
@@ -301,15 +319,18 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		}
 	} else {
 		// payload is followed by SW1:SW2
-		val = scReadByte();	// FIXME need to figure out what the byte timeout should be
+		val = scReadByte(APDU_RX_TIMEOUT);	// FIXME need to figure out what the byte timeout should be
 		sw = (val << 8);
 	
 		// receive SW2
-		val = scReadByte();	// FIXME need to figure out what the byte timeout should be
+		val = scReadByte(APDU_RX_TIMEOUT);	// FIXME need to figure out what the byte timeout should be
 	
 		sw = sw | val;
 	}
 
+
+	// cleanup before exiting
+done:
 	if (debug) {
 		// APDU debug, SW1:SW2
 		Serial.print(" [");
@@ -317,8 +338,6 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		Serial.println("]");
 	}
 
-// error/ok exit
-done:
 	scSerial.stopListening();
 	
 	return sw;
