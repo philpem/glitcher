@@ -78,6 +78,9 @@ int cardGetAtr(uint8_t *buf)
 	// overall timeout. ISO7816 says ATR should start transmitting after max 20ms
 	unsigned long atrWait = millis() + 20;
 
+	// start listening for ATR data
+	scSerial.listen();
+
 	// keep looping until we have the whole ATR
 	while ((millis() < atrWait) && (n < atrLen)) {
 		// read serial byte
@@ -118,6 +121,9 @@ int cardGetAtr(uint8_t *buf)
 				break;	
 		}
 	}
+
+	// stop listening
+	scSerial.stopListening();
 
 	// return number of bytes received
 	return n;
@@ -198,7 +204,8 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		// check for timeout
 		if (val == -1) {
 			//Serial.println("PROC tmo");
-			return 0xFFFF;		// procedure-byte timeout
+			sw = 0xFFFF;		// procedure-byte timeout
+			goto done;
 		}
 
 #ifdef APDU_DEBUG_DATA
@@ -240,7 +247,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 #endif
 			// combine SW1, SW2 and return
 			sw = sw | val;
-			return sw;
+			goto done;
 		}
 
 		// any bytes to transfer?
@@ -304,6 +311,9 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 	Serial.print(sw, HEX);
 	Serial.println("]");
 #endif
+
+done:
+	scSerial.stopListening();
 	
 	return sw;
 }
