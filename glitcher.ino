@@ -72,35 +72,8 @@ void scSendByte(const byte val)
 */
 
 
-
-
-
-
-
-
-
-
-void setup() {
-	// put your setup code here, to run once:
-
-	// init serial port
-	Serial.begin(57600);
-	while (!Serial) { }
-
-	// init glitcher
-	glitcherInit();
-	cardPower(0);
-
-
-	Serial.println(">> GLITCHER " __DATE__ " " __TIME__ "\n");
-
-	cardInit();
-
-	// hold the card in reset, power off, no clock
-	cardPower(0);
-	delay(100);
-
-
+void doResetAndATR(void)
+{
 	///////
 	// POWER UP AND GET ATR
 
@@ -121,13 +94,58 @@ void setup() {
 
 	Serial.println();
 	Serial.println();
+}
 
 
-#if 1
+void handle_cmd84(String *cmdline)
+{
+	Serial.println("CMD84 run -- based on 84CMD.C");
+
+	uint8_t buf[256];
+	uint16_t sw1sw2;
+
+	doResetAndATR();
+
+	// read serial number
+	sw1sw2 = cardSendApdu(0x53, 0x70, 0, 0, 6, buf, APDU_RECV);
+	Serial.print("Card issue:  ");
+	Serial.println(buf[0] & 0x0F);
+	Serial.println();
+	
+	unsigned long serial =
+		((unsigned long)buf[1] << 24) |
+		((unsigned long)buf[2] << 16) |
+		((unsigned long)buf[3] << 8)  |
+		((unsigned long)buf[4]);
+	Serial.print("Card serial: ");
+	Serial.print(serial);
+	Serial.println("x");
+	Serial.println();
+						
+
+	// send...
+	sw1sw2 = cardSendApdu(0x53, 0x84, 0xa3, 0x7d, 0x50, buf, APDU_RECV);
+
+	Serial.print(" -- sw1sw2=");
+	Serial.println(sw1sw2, HEX);
+
+}
+
+
+void handle_reset(String *cmdline)
+{
+	doResetAndATR();
+}
+
+
+void handle_scan_ins(String *cmdline)
+{
 	////////
 	// CLA/INS SCAN
 
-	uint8_t buf[32];
+	uint8_t atr[32];
+	uint8_t atrLen;
+	uint8_t buf[256];
 
 	// CLA 0xFF is reserved for PTS
 	// Sky 07 cards don't seem to check the classcode. ???
@@ -178,7 +196,104 @@ void setup() {
 		}
 	}
 	Serial.println("All done.");
-#endif
+}
+
+// command definition entry
+typedef struct {
+	char cmd[32];
+	void (*callback)(String *s);
+} CMD;
+
+// command definitions
+const CMD COMMANDS[] = {
+	{ "cmd84", handle_cmd84 },
+	{ "reset", handle_reset },			// Reset and ATR
+	{ "scanins", handle_scan_ins },		// Scan for instructions
+	{ "", NULL }
+};
+
+void menu(void)
+{
+	const CMD *p = COMMANDS;
+
+	Serial.println("\nCommand list:");
+	while (p->callback != NULL) {
+		Serial.print("   [");
+		Serial.print(p->cmd);
+		Serial.println("]");
+		p++;
+	}
+
+	Serial.print("> ");
+
+	while (Serial.available() == 0) {} 
+	String s = Serial.readString();
+
+	// trim whitespace
+	s.trim();
+
+	// echo the command line
+	Serial.println(s);
+
+
+
+	// parse the command string
+	int pos;
+	String cmp;
+
+	// find the first argument separator
+	pos = s.indexOf(' ');
+	if (pos != -1) {
+		cmp = s.substring(0, pos);
+		s.remove(0, pos+1);
+	} else {
+		cmp = s;
+		s = "";
+	}
+
+	// try to find the command in the command table
+	p = COMMANDS;
+	while (p->callback != NULL) {
+		if (cmp.equals(p->cmd)) {
+			break;
+		}
+		p++;
+	}
+
+	// call the handler callback if the cmd was found
+	if (p->callback != NULL) {
+		p->callback(&s);
+	} else {
+		Serial.println("Bad command '" + cmp + "'");
+	}
+}
+
+
+
+
+
+void setup() {
+	// put your setup code here, to run once:
+
+	// init serial port
+	Serial.begin(57600);
+	while (!Serial) { }
+
+	// init glitcher
+	glitcherInit();
+	cardPower(0);
+
+
+	Serial.println(">> GLITCHER " __DATE__ " " __TIME__ );
+
+	cardInit();
+
+	// hold the card in reset, power off, no clock
+	cardPower(0);
+	delay(100);
+
+#if 0
+
 
 
 
@@ -242,12 +357,18 @@ void setup() {
 	printHexBuf(apduBuf, 32);
 	Serial.println("\n");
 #endif
+
+#endif
 	
 }
 
 
 void loop() {
 	// put your main code here, to run repeatedly:
+
+	menu();
+	return;
+	
 #if 0
 
 	/*
