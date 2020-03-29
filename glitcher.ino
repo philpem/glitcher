@@ -130,7 +130,7 @@ void handle_cmd84(String *cmdline)
 						
 
 	// send...
-	sw1sw2 = cardSendApdu(0x53, 0x84, 0xa3, 0x7d, 0x50, buf, APDU_RECV);
+	sw1sw2 = cardSendApdu(0x53, 0x84, 0xa3, 0x7d, 0x50, buf, APDU_RECV, true);
 
 	Serial.print(" -- sw1sw2=");
 	Serial.println(sw1sw2, HEX);
@@ -158,7 +158,32 @@ void handle_serial(String *cmdline)
 }
 
 
-void handle_scan_ins(String *cmdline)
+
+// Debug enable/disable for SCAN
+bool gScanDebug = false;
+
+/**
+ * Command handler: scandebug [i]
+ * 
+ * Get/set 
+ */
+void handle_scan_debug(String *cmdline)
+{
+	if (cmdline->length() > 0) {
+		gScanDebug = cmdline->toInt() != 0;
+	}
+	
+	Serial.print("Scan debug is ");
+	Serial.println(gScanDebug ? "on" : "off");
+}
+
+
+/**
+ * Command handler: scancla <start> [<end>]
+ * 
+ * Scan instruction classes.
+ */
+void handle_scan_cla(String *cmdline)
 {
 	////////
 	// CLA/INS SCAN
@@ -167,56 +192,87 @@ void handle_scan_ins(String *cmdline)
 	uint8_t atrLen;
 	uint8_t buf[256];
 
+	uint8_t startClass;
+	uint8_t endClass;
+
+	if (cmdline->length() == 0) {
+		Serial.println("**ERROR: Need at least a starting classcode");
+		return;
+	} else {
+		int ofs;
+		String val = *cmdline;
+
+		// Get starting classcode
+		ofs = val.indexOf(' ');
+		if (ofs == -1) {
+			startClass = strtol(val.c_str(), NULL, 16);
+			endClass = startClass;
+		} else {
+			startClass = strtol(val.substring(0, ofs).c_str(), NULL, 16);
+			endClass = strtol(val.substring(ofs+1).c_str(), NULL, 16);
+		}
+	}
+
+	Serial.print("Scanning from classcode 0x");
+	Serial.print(startClass, HEX);
+	Serial.print(" to 0x");
+	Serial.print(endClass, HEX);
+	Serial.println(" inclusive.");
+
+	String reason = "";
+
 	// CLA 0xFF is reserved for PTS
 	// Sky 07 cards don't seem to check the classcode. ???
-	uint8_t cla = 0x53;
+	for (int cla = startClass; cla <= endClass; cla++)
 	{
-		//Serial.println();
-		//Serial.print("CLA ");
-		//Serial.print(cla, HEX);
-		//Serial.print(": ");
-
-		//uint8_t ins = 0x70; {
-		for (uint16_t ins=0x6c; ins<0xFE; ins += 2) {
+		for (int ins=0; ins<=0xFF; ins += 2) {
 			// INS is only valid if LSBit = 0 and MSN is not 6 or 9
 			if ( ((ins >> 4) == 6) || ((ins >> 4) == 9) || (ins & 1)) {
-				Serial.print("skipping invalid INS ");
-				Serial.println(ins, HEX);
+				//Serial.print("skipping invalid INS ");
+				//Serial.println(ins, HEX);
 				continue;
 			}
 
-			// skip known instructions
-			if ((ins >= 0x70) && (ins <= 0x82)) {
-				Serial.print("skipping known INS ");
-				Serial.println(ins, HEX);
-				continue;
-			}
-
-			uint16_t sw1sw2 = cardSendApdu(cla, ins, 0, 0, 0xf0, buf, APDU_RECV);
-
-				Serial.print(cla, HEX);
-				Serial.print('/');
-				Serial.print(ins, HEX);
-				Serial.print(" -- sw1sw2=");
-				Serial.print(sw1sw2, HEX);
+			if (gScanDebug) {
 				Serial.println();
+			}
+
+			uint16_t sw1sw2 = cardSendApdu(cla, ins, 0, 0, 0xf0, buf, APDU_RECV, gScanDebug);
 
 			if (sw1sw2 >= 0xFFF0) {
-				Serial.println("comms err, rebooting card");
+				reason = " (comms err, rebooting card)";
 				// reset and ATR, comms error
 				scReset(true);
 				delay(10);
 				scReset(false);
 				atrLen = cardGetAtr(atr);
 				delay(10);
+			} else if (sw1sw2 == 0x6D00) {
+				//reason = " (bad ins)";
+			} else {
+				reason = " FOUND";
 			}
 
-			Serial.println();
+			if (reason.length() > 0) {
+				Serial.print("CLA/INS ");
+				Serial.print(cla, HEX);
+				Serial.print('/');
+				Serial.print(ins, HEX);
+				Serial.print(" -- sw1sw2=");
+				Serial.print(sw1sw2, HEX);
+				Serial.print(reason);
+				Serial.println();
 
+				reason = "";
+			}
+
+			// Sky card requires 10ms between commands
+			delay(10);
 		}
 	}
 	Serial.println("All done.");
 }
+
 
 // command definition entry
 typedef struct {
@@ -230,7 +286,8 @@ const CMD COMMANDS[] = {
 	{ "off",		handle_off },			// Card power off
 	{ "on",			handle_reset },			// Power on, Reset and ATR
 	{ "reset",		handle_reset },			// Power on, Reset and ATR
-	{ "scanins",	handle_scan_ins },		// Scan for instructions
+	{ "scandebug",	handle_scan_debug },	// scandebug <n> --> debug on/off
+	{ "scancla",	handle_scan_cla },		// Scan for classcodes
 	{ "serial",		handle_serial },		// Read serial number and card issue
 	{ "", NULL }
 };
@@ -250,7 +307,7 @@ void menu(void)
 	Serial.print("\n> ");
 
 	while (Serial.available() == 0) {} 
-	String s = Serial.readString();
+	String s = Serial.readStringUntil('\n');
 
 	// trim whitespace
 	s.trim();
@@ -309,11 +366,9 @@ void setup() {
 
 	Serial.println(">> GLITCHER " __DATE__ " " __TIME__ );
 
+	// init card serial port
 	cardInit();
 
-	// hold the card in reset, power off, no clock
-	cardPower(0);
-	delay(100);
 
 #if 0
 
