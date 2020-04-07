@@ -103,6 +103,8 @@ void scWriteByte(uint8_t b)
 
 /**
  * Get the ATR from the card.
+ * 
+ * TODO: ATR should set up card convention, guard time, etc.
  */
 int cardGetAtr(uint8_t *buf)
 {

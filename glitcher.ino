@@ -30,6 +30,13 @@
 //
 
 
+// Current card power/init state
+bool gCardPowerOn = false;
+
+// Debug enable/disable for SCAN
+bool gScanDebug = false;
+
+
 
 /*
 void scSendByte(const byte val)
@@ -72,6 +79,11 @@ void scSendByte(const byte val)
 */
 
 
+/**
+ * Utility function: power on the card and display the ATR.
+ * 
+ * Used by the 'on' and 'reset' commands
+ */
 void doResetAndATR(void)
 {
 	///////
@@ -94,13 +106,24 @@ void doResetAndATR(void)
 
 	Serial.println();
 	Serial.println();
+
+	gCardPowerOn = true;
 }
 
+
+/**
+ * Utility function: read and display card serial number
+ */
 void doSerialNumber(void)
 {
 	uint8_t buf[8];
 	uint16_t sw1sw2;
-	
+
+	if (!gCardPowerOn) {
+		Serial.println("Card power is off.");
+		return;
+	}
+
 	// read serial number
 	sw1sw2 = cardSendApdu(0x53, 0x70, 0, 0, 6, buf, APDU_RECV);
 	Serial.print("Card issue:  ");
@@ -118,6 +141,12 @@ void doSerialNumber(void)
 }
 
 
+/**
+ * Command handler: cmd84
+ * 
+ * Based on 84CMD.C.
+ * No idea what this does.
+ */
 void handle_cmd84(String *cmdline)
 {
 	Serial.println("CMD84 run -- based on 84CMD.C");
@@ -127,7 +156,6 @@ void handle_cmd84(String *cmdline)
 
 	doResetAndATR();
 	doSerialNumber();
-						
 
 	// send...
 	sw1sw2 = cardSendApdu(0x53, 0x84, 0xa3, 0x7d, 0x50, buf, APDU_RECV, true);
@@ -138,34 +166,47 @@ void handle_cmd84(String *cmdline)
 }
 
 
+/**
+ * Command handler: off
+ * 
+ * Switch card power off
+ */
 void handle_off(String *cmdline)
 {
 	Serial.print("Powering off card... ");
 	cardPower(0);
 	Serial.println("done.");
+
+	gCardPowerOn = false;
 }
 
 
+/**
+ * Command handler: reset
+ * 
+ * Cold-reset the card and read the ATR
+ */
 void handle_reset(String *cmdline)
 {
 	doResetAndATR();
 }
 
 
+/**
+ * Command handler: serial
+ * 
+ * Display VideoCrypt card serial number
+ */
 void handle_serial(String *cmdline)
 {
 	doSerialNumber();
 }
 
 
-
-// Debug enable/disable for SCAN
-bool gScanDebug = false;
-
 /**
  * Command handler: scandebug [i]
  * 
- * Get/set 
+ * Get/set scan debug state
  */
 void handle_scan_debug(String *cmdline)
 {
@@ -212,6 +253,8 @@ void handle_scan_cla(String *cmdline)
 			endClass = strtol(val.substring(ofs+1).c_str(), NULL, 16);
 		}
 	}
+
+	doResetAndATR();
 
 	Serial.print("Scanning from classcode 0x");
 	Serial.print(startClass, HEX);
