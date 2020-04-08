@@ -182,6 +182,57 @@ void handle_off(String *cmdline)
 
 
 /**
+ * Command handler: osd
+ *
+ * Display current VideoCrypt OSD message
+ */
+void handle_osd(String *cmdline)
+{
+	uint8_t buf[25];
+	uint16_t sw1sw2;
+
+	if (!gCardPowerOn) {
+		Serial.println("Card power is off.");
+		return;
+	}
+
+	// read OSD
+	sw1sw2 = cardSendApdu(0x53, 0x7A, 0, 0, 25, buf, APDU_RECV);
+
+	uint8_t prio = buf[0] >> 5;
+	uint8_t len  = buf[0] & 0x1F;
+	
+	Serial.print("OSD Priority ");
+	Serial.print(prio);
+	Serial.print(", ");
+	Serial.print(len);
+	Serial.print(" characters");
+
+	// OSD messages must have a priority of >= 4 to show on clear unencrypted video.
+	// Ref. 8052INFO.TXT [1.1.2].
+	if (prio < 4) {
+		Serial.println(" *HIDDEN*");
+	} else {
+		Serial.println();
+	}
+
+	Serial.print("OSD: [");
+	for (int i=1; i<=len; i++) {
+		if (buf[i] == '\0') {
+			Serial.print(" ");
+		} else {
+			Serial.print((char)buf[i]);
+		}
+
+		if (i == 12) {
+			Serial.print("] [");
+		}
+	}
+	Serial.print("]\n");
+}
+
+
+/**
  * Command handler: reset
  * 
  * Cold-reset the card and read the ATR
@@ -294,6 +345,12 @@ void handle_scan_cla(String *cmdline)
 				//reason = " (bad ins)";
 			} else {
 				reason = " FOUND";
+
+				switch (sw1sw2) {
+					case 0x6700: reason += " (BAD_LE)"; break;
+					case 0x6B00: reason += " (BAD P1/P2)"; break;
+					case 0x9000: reason += " (SUCCESS)"; break;
+				}
 			}
 
 			if (reason.length() > 0) {
@@ -331,7 +388,8 @@ const CMD COMMANDS[] = {
 	{ "reset",		handle_reset },			// Power on, Reset and ATR
 	{ "scandebug",	handle_scan_debug },	// scandebug <n> --> debug on/off
 	{ "scancla",	handle_scan_cla },		// Scan for classcodes
-	{ "serial",		handle_serial },		// Read serial number and card issue
+	{ "serial",		handle_serial },		// VC: Read serial number and card issue
+	{ "osd",		handle_osd },			// VC: Read OSD
 	{ "", NULL }
 };
 
