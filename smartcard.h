@@ -29,6 +29,6 @@ void scWriteByte(uint8_t b);
 #define APDU_SEND true
 #define APDU_RECV false
 
-uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t len, uint8_t *buf, bool isSend, bool debug=false);
+uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t len, uint8_t *buf, bool isSend, uint8_t *procByte=NULL, bool debug=false);
 
 #endif

@@ -158,7 +158,7 @@ void handle_cmd84(String *cmdline)
 	doSerialNumber();
 
 	// send...
-	sw1sw2 = cardSendApdu(0x53, 0x84, 0xa3, 0x7d, 0x50, buf, APDU_RECV, true);
+	sw1sw2 = cardSendApdu(0x53, 0x84, 0xa3, 0x7d, 0x50, buf, APDU_RECV, NULL, true);
 
 	Serial.print(" -- sw1sw2=");
 	Serial.println(sw1sw2, HEX);
@@ -283,6 +283,7 @@ void handle_scan_cla(String *cmdline)
 	uint8_t atr[32];
 	uint8_t atrLen;
 	uint8_t buf[256];
+	uint8_t procByte;
 
 	uint8_t startClass;
 	uint8_t endClass;
@@ -311,7 +312,7 @@ void handle_scan_cla(String *cmdline)
 	Serial.print(startClass, HEX);
 	Serial.print(" to 0x");
 	Serial.print(endClass, HEX);
-	Serial.println(" inclusive.");
+	Serial.println(" inclusive.\n");
 
 	String reason = "";
 
@@ -331,10 +332,10 @@ void handle_scan_cla(String *cmdline)
 				Serial.println();
 			}
 
-			uint16_t sw1sw2 = cardSendApdu(cla, ins, 0, 0, 0xf0, buf, APDU_RECV, gScanDebug);
+			uint16_t sw1sw2 = cardSendApdu(cla, ins, 0, 0, 0xff, buf, APDU_RECV, &procByte, gScanDebug);
 
 			if (sw1sw2 >= 0xFFF0) {
-				reason = " (comms err, rebooting card)";
+				reason = " (comms err, rebooting card) ";
 				// reset and ATR, comms error
 				scReset(true);
 				delay(10);
@@ -347,9 +348,9 @@ void handle_scan_cla(String *cmdline)
 				reason = " FOUND";
 
 				switch (sw1sw2) {
-					case 0x6700: reason += " (BAD_LE)"; break;
-					case 0x6B00: reason += " (BAD P1/P2)"; break;
-					case 0x9000: reason += " (SUCCESS)"; break;
+					case 0x6700: reason += " (BAD_LE)    "; break;
+					case 0x6B00: reason += " (BAD P1/P2) "; break;
+					case 0x9000: reason += " (SUCCESS)   "; break;
 				}
 			}
 
@@ -361,6 +362,8 @@ void handle_scan_cla(String *cmdline)
 				Serial.print(" -- sw1sw2=");
 				Serial.print(sw1sw2, HEX);
 				Serial.print(reason);
+				Serial.print("Proc=");
+				printHex(procByte);
 				Serial.println();
 
 				reason = "";
@@ -370,7 +373,7 @@ void handle_scan_cla(String *cmdline)
 			delay(10);
 		}
 	}
-	Serial.println("All done.");
+	Serial.println("\nAll done.");
 }
 
 

@@ -182,7 +182,7 @@ int cardGetAtr(uint8_t *buf)
 /**
  * Send an APDU to the card.
  */
-uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t len, uint8_t *buf, bool isSend, bool debug)
+uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t len, uint8_t *buf, bool isSend, uint8_t *procByte, bool debug)
 {
 	int val;
 	uint8_t n = 0;
@@ -223,6 +223,10 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		
 		// read procedure byte
 		val = scReadByte(APDU_RX_TIMEOUT);	// FIXME need to figure out what the byte timeout should be
+
+		if (procByte != NULL) {
+			*procByte = val;
+		}
 		
 		// check for timeout
 		if (val == -1) {
