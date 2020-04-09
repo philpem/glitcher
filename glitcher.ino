@@ -370,9 +370,112 @@ void handle_scan_cla(String *cmdline)
 			}
 
 			// Sky card requires 10ms between commands
-			delay(10);
+			delay(50);
 		}
 	}
+	Serial.println("\nAll done.");
+}
+
+
+/**
+ * Command handler: scanlen <cla> <ins>
+ * 
+ * Scan for valid instruction lengths
+ */
+void handle_scan_len(String *cmdline)
+{
+	////////
+	// LENGTH SCAN
+
+	uint8_t atr[32];
+	uint8_t atrLen;
+	uint8_t buf[256];
+	uint8_t procByte;
+
+	uint8_t cla;
+	uint8_t ins;
+
+	if (cmdline->length() == 0) {
+		Serial.println("**ERROR: Syntax = scanlen <cla> <ins>");
+		return;
+	} else {
+		int ofs;
+		String val = *cmdline;
+
+		// Get class
+		ofs = val.indexOf(' ');
+		if (ofs == -1) {
+			Serial.println("**ERROR: Syntax = scanlen <cla> <ins>");
+			return;
+		} else {
+			cla = strtol(val.substring(0, ofs).c_str(), NULL, 16);
+			ins = strtol(val.substring(ofs+1).c_str(), NULL, 16);
+		}
+	}
+
+	doResetAndATR();
+
+	Serial.print("Scanning valid lengths for CLA 0x");
+	printHex(cla);
+	Serial.print(" INS 0x");
+	printHex(ins);
+	Serial.println(".");
+
+	String reason = "";
+
+	for (int len = 0xFF; len >= 0; len--) {
+		if (gScanDebug) {
+			Serial.println();
+		}
+
+		uint16_t sw1sw2 = cardSendApdu(cla, ins, 0, 0, len, buf, APDU_RECV, &procByte, gScanDebug);
+		
+		if (sw1sw2 >= 0xFFF0) {
+			reason = " (comms err, rebooting card) ";
+			// reset and ATR, comms error
+			scReset(true);
+			delay(10);
+			scReset(false);
+			atrLen = cardGetAtr(atr);
+			delay(10);
+		} else if (sw1sw2 == 0x6D00) {
+			//reason = " (bad ins)";
+		} else {
+			reason = " FOUND";
+
+			switch (sw1sw2) {
+				case 0x6700: reason += " (BAD_LE)    "; break;
+				case 0x6B00: reason += " (BAD P1/P2) "; break;
+				case 0x9000: reason += " (SUCCESS)   "; break;
+			}
+		}
+
+		if (reason.length() > 0) {
+			Serial.print("CLA/INS ");
+			printHex(cla);
+			Serial.print("/");
+			printHex(ins);
+			Serial.print(" LEN ");
+			printHex(len);
+			Serial.print(" -- sw1sw2=");
+			printHex(sw1sw2 >> 8);
+			printHex(sw1sw2 & 0xFF);
+			Serial.print(reason);
+			Serial.print("Proc=");
+			printHex(procByte);
+			if (sw1sw2 == 0x9000) {
+				Serial.print("  Data=");
+				printHexBuf(buf, len);
+			}
+			Serial.println();
+
+			reason = "";
+		}
+
+		// Sky card requires 10ms between commands
+		delay(50);
+	}
+	
 	Serial.println("\nAll done.");
 }
 
@@ -391,6 +494,7 @@ const CMD COMMANDS[] = {
 	{ "reset",		handle_reset },			// Power on, Reset and ATR
 	{ "scandebug",	handle_scan_debug },	// scandebug <n> --> debug on/off
 	{ "scancla",	handle_scan_cla },		// Scan for classcodes
+	{ "scanlen",	handle_scan_len },		// Scan valid data lengths for command
 	{ "serial",		handle_serial },		// VC: Read serial number and card issue
 	{ "osd",		handle_osd },			// VC: Read OSD
 	{ "", NULL }
