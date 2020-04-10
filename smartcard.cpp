@@ -186,7 +186,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 {
 	int val;
 	uint8_t n = 0;
-	uint8_t ntt;
+	uint8_t ntt = 0;
 	uint16_t sw;
 
 	if (debug) {
