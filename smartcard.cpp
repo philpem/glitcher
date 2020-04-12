@@ -16,6 +16,9 @@ SoftwareSerialParity scSerial(CARD_DATA_RX_PIN, CARD_DATA_TX_PIN);
 // Byte convention -- TRUE for inverse, FALSE for direct
 static bool gSmartcardConvention = true;
 
+// Guard time. 372(etudiv) / 3.579545MHz = ~104us
+const unsigned int GUARDTIME = (104*5);
+
 
 /**
  * Convert inverse-convention to direct-convention
@@ -212,10 +215,8 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 	scWriteByte(p2);
 	scWriteByte(len);
 
-	// If this is a receive APDU -- switch back to listen mode
-	if (!isSend) {
-		scSerial.listen();
-	}
+	// Switch back to listen mode to get the procedure byte
+	scSerial.listen();
 		
 	while (n < len) {
 		// clear byte transfer count
@@ -230,7 +231,9 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		
 		// check for timeout
 		if (val == -1) {
-			//Serial.println("PROC tmo");
+			if (debug) {
+				Serial.println("[PROC tmo]");
+			}
 			sw = 0xFFFF;		// procedure-byte timeout
 			goto done;
 		}
@@ -283,6 +286,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		while (ntt > 0) {
 			if (isSend) {
 				// transmit
+				delayMicroseconds(GUARDTIME);
 				scWriteByte(buf[n++]);
 			} else {
 				// receive
@@ -307,7 +311,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		}
 	}
 
-	if (debug) {
+	if (debug && !isSend) {
 		Serial.println("");
 		
 		// APDU debug, received data
@@ -315,7 +319,7 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		printHexBuf(buf, n);
 	}
 
-	// If there was a receive timeout, SW1:SW2 are probably the last two bytes sent
+	// If there was a receive timeout, SW1:SW2 are probably the last two bytes sent (SKY/VIDEOCRYPT bodge)
 	if (ntt > 0) {
 		if (n >= 2) {
 			sw = (buf[n-2] << 8) | buf[n-1];
@@ -333,7 +337,6 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 	
 		sw = sw | val;
 	}
-
 
 	// cleanup before exiting
 done:
