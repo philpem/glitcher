@@ -116,7 +116,7 @@ void doResetAndATR(void)
 /**
  * Utility function: read and display card serial number
  */
-void doSerialNumber(void)
+void doSerialNumber(uint8_t *pIssue = NULL, unsigned long *pSerial = NULL)
 {
 	uint8_t buf[8];
 	uint16_t sw1sw2;
@@ -140,7 +140,21 @@ void doSerialNumber(void)
 	Serial.print(serial);
 	Serial.println("x");
 	Serial.println();
+
+	// pass issue and serial back to caller
+	if (pSerial != NULL) {
+		*pSerial = serial;
+	}
+	
+	if (pIssue != NULL) {
+		*pIssue = buf[0] & 0x0F;
+	}
 }
+
+
+/************************************************************
+ * COMMAND HANDLERS
+ ************************************************************/
 
 
 /**
@@ -470,6 +484,81 @@ void handle_scan_len(String *cmdline)
 }
 
 
+/**
+ * Command handler: decoem
+ * 
+ * Based on DECOEM.C
+ * VideoCrypt Decoder Emulator
+ */
+void handle_decoem(String *cmdline)
+{
+	const bool debug = false;
+	uint8_t msg_p7[] = {
+	    0xf8, 0x3f, 0x22, 0x35, 0xad, 0x32, 0x0c, 0xb6,   /* a 07 message */
+	    0xfb, 0x62, 0x10, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9,
+	    0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9,
+	    0xf9, 0xf9, 0xf9, 0x54, 0xd5, 0x00, 0x25, 0x86	
+	};
+	uint8_t msg_p9[] = {
+		0xe8, 0x43, 0x66, 0x3e, 0xc6, 0x1a, 0x0c, 0x9f,   /* a 09 message */
+	    0x8f, 0x32, 0x6d, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c,
+	    0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c,
+	    0x6c, 0x6c, 0x6c, 0x67, 0xe9, 0x44, 0xbc, 0x68
+	};
+	uint8_t answ[8];
+	uint8_t msgprev[16];
+	uint8_t cardIssue;
+
+	if (!gCardPowerOn) {
+		Serial.println("Card power is off.");
+		return;
+	}
+	
+	Serial.println("DecoEm -- Videocrypt decoder emulator\n\n");
+
+	// read card serial number
+	doSerialNumber(&cardIssue);
+
+	// CMD 0x72 -- send message from previous card
+	Serial.println("CMD72 (Message from Old Card) -->");
+	memset(msgprev, '\0', sizeof(msgprev));
+	cardSendApdu(0x53, 0x72, 0, 0, 16, msgprev, APDU_SEND, NULL, debug);
+
+	// Main processing loop...
+	
+	// CMD 0x74 -- Send Message
+	if (cardIssue == 7) {
+		Serial.println("CMD74 (Issue 7) -->");
+		cardSendApdu(0x53, 0x74, 0, 0, 32, msg_p7, APDU_SEND, NULL, debug);
+	} else if (cardIssue == 9) {
+		Serial.println("CMD74 (Issue 9) -->");
+		cardSendApdu(0x53, 0x74, 0, 0, 32, msg_p9, APDU_SEND, NULL, debug);
+	} else {
+		Serial.println("Sorry, I don't have a CMD74 for this card.");
+	}
+
+	// CMD 0x76 AUTHORIZE -- not sent if Authorize not pressed, doesn't really do anything
+
+	// CMD 0x78 -- VIDEOCRYPT READ SEED
+	Serial.println("CMD78 READ SEED -->");
+	cardSendApdu(0x53, 0x78, 0, 0, 8, answ, APDU_RECV, NULL, debug);
+	printHexBuf(answ, 8);
+	Serial.println();
+
+	// CMD 0x7A -- READ OSD
+	handle_osd(NULL);
+
+	// CMD 0x7C -- READ MESSAGE FOR NEXT CARD
+	Serial.println("CMD7C READ MESSAGE FOR NEXT CARD -->");
+	cardSendApdu(0x53, 0x7c, 0, 0, 16, msgprev, APDU_RECV, NULL, debug);
+	printHexBuf(msgprev, 16);
+	Serial.println();
+}
+
+/************************************************************
+ * MAIN MENU
+ ************************************************************/
+
 // command definition entry
 typedef struct {
 	const char *cmd;
@@ -481,11 +570,14 @@ const CMD COMMANDS[] = {
 	{ "off",		handle_off },			// Card power off
 	{ "on",			handle_reset },			// Power on, Reset and ATR
 	{ "reset",		handle_reset },			// Power on, Reset and ATR
+	
 	{ "scandebug",	handle_scan_debug },	// scandebug <n> --> debug on/off
 	{ "scancla",	handle_scan_cla },		// Scan for classcodes
 	{ "scanlen",	handle_scan_len },		// Scan valid data lengths for command
+	
 	{ "serial",		handle_serial },		// VC: Read serial number and card issue
 	{ "osd",		handle_osd },			// VC: Read OSD
+	{ "decoem",		handle_decoem },		// VC: Decoder emulation
 	{ "", NULL }
 };
 
@@ -547,7 +639,9 @@ void menu(void)
 
 
 
-
+/************************************************************
+ * SETUP ENTRY POINT
+ ************************************************************/
 
 void setup() {
 	// put your setup code here, to run once:
@@ -637,6 +731,10 @@ void setup() {
 	
 }
 
+
+/************************************************************
+ * MAIN LOOP
+ ************************************************************/
 
 void loop() {
 	// put your main code here, to run repeatedly:
