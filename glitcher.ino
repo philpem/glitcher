@@ -89,6 +89,8 @@ void doResetAndATR(void)
 	///////
 	// POWER UP AND GET ATR
 
+	cardPower(0);
+
 	Serial.println("Card powering up...");
 	cardPower(1);
 
@@ -138,31 +140,6 @@ void doSerialNumber(void)
 	Serial.print(serial);
 	Serial.println("x");
 	Serial.println();
-}
-
-
-/**
- * Command handler: cmd84
- * 
- * Based on 84CMD.C.
- * No idea what this does.
- */
-void handle_cmd84(String *cmdline)
-{
-	Serial.println("CMD84 run -- based on 84CMD.C");
-
-	uint8_t buf[256];
-	uint16_t sw1sw2;
-
-	doResetAndATR();
-	doSerialNumber();
-
-	// send...
-	sw1sw2 = cardSendApdu(0x53, 0x84, 0xa3, 0x7d, 0x50, buf, APDU_RECV, NULL, true);
-
-	Serial.print(" -- sw1sw2=");
-	Serial.println(sw1sw2, HEX);
-
 }
 
 
@@ -428,6 +405,8 @@ void handle_scan_len(String *cmdline)
 			Serial.println();
 		}
 
+		procByte = 0xFF;
+
 		uint16_t sw1sw2 = cardSendApdu(cla, ins, 0, 0, len, buf, APDU_RECV, &procByte, gScanDebug);
 		
 		if (sw1sw2 >= 0xFFF0) {
@@ -463,6 +442,17 @@ void handle_scan_len(String *cmdline)
 			Serial.print(reason);
 			Serial.print("Proc=");
 			printHex(procByte);
+			if (procByte == ins) {
+				Serial.print(" (ACK    )");
+			} else if (procByte == (ins+1)) {
+				Serial.print(" (ACK+VPP)");
+			} else if (procByte == (~ins)) {
+				Serial.print(" (one    )");
+			} else if (procByte == (~(ins+1))) {
+				Serial.print(" (one+VPP)");
+			} else {
+				Serial.print("          ");
+			}
 			if (sw1sw2 == 0x9000) {
 				Serial.print("  Data=");
 				printHexBuf(buf, len);
@@ -488,7 +478,6 @@ typedef struct {
 
 // command definitions
 const CMD COMMANDS[] = {
-	{ "cmd84",		handle_cmd84 },
 	{ "off",		handle_off },			// Card power off
 	{ "on",			handle_reset },			// Power on, Reset and ATR
 	{ "reset",		handle_reset },			// Power on, Reset and ATR
