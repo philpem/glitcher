@@ -1,7 +1,13 @@
 /***
-   Chip Glitcher
+   ISO7816 development platform and Glitcher
+   Phil Pemberton <philpem@philpem.me.uk>
 
-   ATMega328P
+   Glitcher hardware based on the work of Chris Gerlinsky.
+   Some ideas taken from Kpyro and Tucker.
+
+   ATMega328P processor.
+
+   Select Tools -> Board: "Chip Glitcher".
 */
 
 
@@ -105,6 +111,10 @@ void doResetAndATR(void)
 	
 	Serial.print("ATR: ");
 	printHexBuf(atr, atrLen);
+	Serial.println();
+
+	Serial.print("Convention: ");
+	Serial.println(scGetInverseConvention() ? "Inverse" : "Direct");
 
 	Serial.println();
 	Serial.println();
@@ -271,7 +281,6 @@ void handle_scan_cla(String *cmdline)
 	////////
 	// CLA/INS SCAN
 
-	uint8_t atr[32];
 	uint8_t atrLen;
 	uint8_t buf[256];
 	uint8_t procByte;
@@ -285,6 +294,8 @@ void handle_scan_cla(String *cmdline)
 	} else {
 		int ofs;
 		String val = *cmdline;
+
+		Serial.println("CLI: [" + *cmdline + "]");
 
 		// Get starting classcode
 		ofs = val.indexOf(' ');
@@ -331,7 +342,7 @@ void handle_scan_cla(String *cmdline)
 				scReset(true);
 				delay(10);
 				scReset(false);
-				atrLen = cardGetAtr(atr);
+				atrLen = cardGetAtr(buf);
 				delay(10);
 			} else if (sw1sw2 == 0x6D00) {
 				//reason = " (bad ins)";
@@ -378,7 +389,6 @@ void handle_scan_len(String *cmdline)
 	////////
 	// LENGTH SCAN
 
-	uint8_t atr[32];
 	uint8_t atrLen;
 	uint8_t buf[256];
 	uint8_t procByte;
@@ -429,7 +439,7 @@ void handle_scan_len(String *cmdline)
 			scReset(true);
 			delay(10);
 			scReset(false);
-			atrLen = cardGetAtr(atr);
+			atrLen = cardGetAtr(buf);
 			delay(10);
 		} else if (sw1sw2 == 0x6D00) {
 			//reason = " (bad ins)";
@@ -492,6 +502,7 @@ void handle_scan_len(String *cmdline)
  */
 void handle_decoem(String *cmdline)
 {
+#if 0
 	const bool debug = false;
 	uint8_t msg_p7[] = {
 	    0xf8, 0x3f, 0x22, 0x35, 0xad, 0x32, 0x0c, 0xb6,   /* a 07 message */
@@ -553,7 +564,9 @@ void handle_decoem(String *cmdline)
 	cardSendApdu(0x53, 0x7c, 0, 0, 16, msgprev, APDU_RECV, NULL, debug);
 	printHexBuf(msgprev, 16);
 	Serial.println();
+#endif
 }
+
 
 /************************************************************
  * MAIN MENU
@@ -658,77 +671,7 @@ void setup() {
 	Serial.println(">> GLITCHER " __DATE__ " " __TIME__ );
 
 	// init card serial port
-	cardInit();
-
-
-#if 0
-
-
-
-
-#if 0
-	////////
-	// Check some CLA/INS combinations we're curious about
-
-	//// CMD 70
-
-	uint8_t apduBuf[200];
-	uint16_t sw1sw2;
-
-	Serial.println("Read CSN...");
-
-	triggerPulse();
-	
-	sw1sw2 = cardSendApdu(0x53, 0x70, 0, 0, 6, apduBuf, APDU_RECV);
-	Serial.print("send apdu, sw1sw2: ");
-	Serial.println(sw1sw2, HEX);
-
-	// send buffer
-	Serial.print("card serial:");
-	printHexBuf(apduBuf, 6);
-	Serial.println("\n");
-
-
-	// CMD 6C. Seems to be card reset.
-	Serial.println("CLA 53 INS 6C...");
-	sw1sw2 = cardSendApdu(0x53, 0x6C, 0, 0, 32, apduBuf, APDU_SEND);
-	Serial.print("send apdu, sw1sw2: ");
-	Serial.println(sw1sw2, HEX);
-	Serial.print("BUF: ");
-	printHexBuf(apduBuf, 32);
-	Serial.println("\n");
-
-
-	Serial.println("CLA 53 INS 88...");
-	sw1sw2 = cardSendApdu(0x53, 0x88, 0, 0, 2, apduBuf, APDU_RECV);
-	Serial.print("send apdu, sw1sw2: ");
-	Serial.println(sw1sw2, HEX);
-	Serial.print("BUF: ");
-	printHexBuf(apduBuf, 2);
-	Serial.println("\n");
-
-
-	memset(apduBuf, '\0', sizeof(apduBuf));
-
-	Serial.println("CLA 53 INS 84...");
-	sw1sw2 = cardSendApdu(0x53, 0x84, 0, 0, 200, apduBuf, APDU_SEND);
-	Serial.print("send apdu, sw1sw2: ");
-	Serial.println(sw1sw2, HEX);
-	Serial.print("BUF: ");
-	printHexBuf(apduBuf, 32);
-	Serial.println("\n");
-
-	Serial.println("CLA 53 INS 86...");
-	sw1sw2 = cardSendApdu(0x53, 0x86, 0, 0, 200, apduBuf, APDU_RECV);
-	Serial.print("send apdu, sw1sw2: ");
-	Serial.println(sw1sw2, HEX);
-	Serial.print("BUF: ");
-	printHexBuf(apduBuf, 32);
-	Serial.println("\n");
-#endif
-
-#endif
-	
+	cardInit();	
 }
 
 
