@@ -14,7 +14,7 @@ SoftwareSerialParity scSerial(CARD_DATA_RX_PIN, CARD_DATA_TX_PIN);
 
 
 // Byte convention -- TRUE for inverse, FALSE for direct
-static bool gInverseConvention = true;
+static bool gInverseConvention = false;
 
 // Guard time. 372(etudiv) / 3.579545MHz = ~104us
 const unsigned int GUARDTIME = (104*5);
@@ -38,7 +38,7 @@ static uint8_t _inverse(const uint8_t val)
 void cardInit(void)
 {
 	// init smartcard serial
-	scSerial.begin(9600, ODD, 2);	// 9600bd 8E2, defaults to listening
+	scSerial.begin(9600, ODD, 2);	// 9600bd 8O2, defaults to listening
 
 	// turn listening off
 	scSerial.stopListening();
@@ -141,6 +141,8 @@ int cardGetAtr(uint8_t *buf)
 		triggerPulse();
 	}
 #endif
+		// account for current card convention setting
+		val = gInverseConvention ? _inverse(val) : val;
 
 		// If this is TS, use it to identify the card convention (inverse/direct)
 		if (n == 0) {
@@ -155,7 +157,7 @@ int cardGetAtr(uint8_t *buf)
 		buf[n++] = val;
 
 		// extend delay
-		atrWait += 2;
+		atrWait += 5;
 
 		// ATR decode
 		switch (n) {
