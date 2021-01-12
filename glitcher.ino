@@ -14,6 +14,10 @@
 // gotta go fast!
 #pragma GCC optimize ("-O3")
 
+// Configuration options
+// Enable VideoCrypt decoder emulation command
+#define ENABLE_VC_DECOEM
+
 
 #include "hardware.h"
 #include "smartcard.h"
@@ -494,28 +498,33 @@ void handle_scan_len(String *cmdline)
 }
 
 
+#ifdef ENABLE_VC_DECOEM
 /**
  * Command handler: decoem
  * 
  * Based on DECOEM.C
  * VideoCrypt Decoder Emulator
  */
+
+static const uint8_t MSG_P7[] = {
+    0xf8, 0x3f, 0x22, 0x35, 0xad, 0x32, 0x0c, 0xb6,   /* a 07 message */
+    0xfb, 0x62, 0x10, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9,
+    0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9,
+    0xf9, 0xf9, 0xf9, 0x54, 0xd5, 0x00, 0x25, 0x86	
+};
+static const uint8_t MSG_P9[] = {
+	0xe8, 0x43, 0x66, 0x3e, 0xc6, 0x1a, 0x0c, 0x9f,   /* a 09 message */
+    0x8f, 0x32, 0x6d, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c,
+    0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c,
+    0x6c, 0x6c, 0x6c, 0x67, 0xe9, 0x44, 0xbc, 0x68
+};
+
+ 
 void handle_decoem(String *cmdline)
 {
-#if 0
 	const bool debug = false;
-	uint8_t msg_p7[] = {
-	    0xf8, 0x3f, 0x22, 0x35, 0xad, 0x32, 0x0c, 0xb6,   /* a 07 message */
-	    0xfb, 0x62, 0x10, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9,
-	    0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9,
-	    0xf9, 0xf9, 0xf9, 0x54, 0xd5, 0x00, 0x25, 0x86	
-	};
-	uint8_t msg_p9[] = {
-		0xe8, 0x43, 0x66, 0x3e, 0xc6, 0x1a, 0x0c, 0x9f,   /* a 09 message */
-	    0x8f, 0x32, 0x6d, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c,
-	    0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c,
-	    0x6c, 0x6c, 0x6c, 0x67, 0xe9, 0x44, 0xbc, 0x68
-	};
+	bool ok = false;
+	uint8_t msg[32];
 	uint8_t answ[8];
 	uint8_t msgprev[16];
 	uint8_t cardIssue;
@@ -538,14 +547,28 @@ void handle_decoem(String *cmdline)
 	// Main processing loop...
 	
 	// CMD 0x74 -- Send Message
-	if (cardIssue == 7) {
-		Serial.println("CMD74 (Issue 7) -->");
-		cardSendApdu(0x53, 0x74, 0, 0, 32, msg_p7, APDU_SEND, NULL, debug);
-	} else if (cardIssue == 9) {
-		Serial.println("CMD74 (Issue 9) -->");
-		cardSendApdu(0x53, 0x74, 0, 0, 32, msg_p9, APDU_SEND, NULL, debug);
-	} else {
-		Serial.println("Sorry, I don't have a CMD74 for this card.");
+	switch (cardIssue) {
+		case 7:
+			memcpy(msg, MSG_P7, sizeof(msg));
+			ok = true;
+			break;
+
+		case 9:
+			memcpy(msg, MSG_P9, sizeof(msg));
+			ok = true;
+			break;
+
+		default:
+			Serial.println("Sorry, I don't have a CMD74 for this card issue.");
+			ok = false;
+			break;
+	}
+
+	if (ok) {
+		Serial.print("CMD74 (Issue ");
+		Serial.print(cardIssue);
+		Serial.println(") -->");
+		cardSendApdu(0x53, 0x74, 0, 0, 32, msg, APDU_SEND, NULL, debug);
 	}
 
 	// CMD 0x76 AUTHORIZE -- not sent if Authorize not pressed, doesn't really do anything
@@ -564,9 +587,8 @@ void handle_decoem(String *cmdline)
 	cardSendApdu(0x53, 0x7c, 0, 0, 16, msgprev, APDU_RECV, NULL, debug);
 	printHexBuf(msgprev, 16);
 	Serial.println();
-#endif
 }
-
+#endif
 
 /************************************************************
  * MAIN MENU
@@ -588,9 +610,11 @@ const CMD COMMANDS[] = {
 	{ "scancla",	handle_scan_cla },		// Scan for classcodes
 	{ "scanlen",	handle_scan_len },		// Scan valid data lengths for command
 	
-	{ "serial",		handle_serial },		// VC: Read serial number and card issue
-	{ "osd",		handle_osd },			// VC: Read OSD
-	{ "decoem",		handle_decoem },		// VC: Decoder emulation
+	{ "vcserial",	handle_serial },		// VC: Read serial number and card issue
+	{ "vcosd",		handle_osd },			// VC: Read OSD
+#ifdef ENABLE_VC_DECOEM
+	{ "vcdecoem",	handle_decoem },		// VC: Decoder emulation
+#endif
 	{ "", NULL }
 };
 
