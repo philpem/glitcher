@@ -14,7 +14,7 @@ SoftwareSerialParity scSerial(CARD_DATA_RX_PIN, CARD_DATA_TX_PIN);
 
 
 // Byte convention -- TRUE for inverse, FALSE for direct
-static bool gSmartcardConvention = true;
+static bool gInverseConvention = true;
 
 // Guard time. 372(etudiv) / 3.579545MHz = ~104us
 const unsigned int GUARDTIME = (104*5);
@@ -86,7 +86,7 @@ int scReadByte(int timeout_ms)
 		return -1;
 	} else {
 		// TODO if Direct convention, return without inverting byte/bit convention
-		return _inverse(val);
+		return gInverseConvention ? _inverse(val) : val;
 	}
 }
 
@@ -97,7 +97,11 @@ int scReadByte(int timeout_ms)
 void scWriteByte(uint8_t b)
 {
 	// TODO if Direct convention, send without inverting byte/bit convention
-	scSerial.write(_inverse(b));
+	if (gInverseConvention) {
+		scSerial.write(_inverse(b));
+	} else {
+		scSerial.write(b);
+	}
 }
 
 
@@ -138,8 +142,16 @@ int cardGetAtr(uint8_t *buf)
 	}
 #endif
 
-		// convert from inverse convention and save
-		val = _inverse(val);
+		// If this is TS, use it to identify the card convention (inverse/direct)
+		if (n == 0) {
+			if ((val == 0x03) || (val == 0x23)) {
+				// 0x03: 0x3F sent as Inverse Convention, but we're in Direct Convention
+				// 0x23: 0x3B sent as Direct Convention, but we're in Inverse Convention
+				// Fix the value then change the card convention.
+				val = _inverse(val);
+				gInverseConvention = !gInverseConvention;
+			}
+		}
 		buf[n++] = val;
 
 		// extend delay
@@ -147,9 +159,10 @@ int cardGetAtr(uint8_t *buf)
 
 		// ATR decode
 		switch (n) {
-			case 1:		// TS -- TODO: set direct/inverse convention
+			case 1:		// TS
 						// 0x3F (sent inv. conv.) == inverse convention
 						// 0x3B (sent dir. conv.) == direct convention
+				// TODO: Check the ATR TS byte is valid?
 				break;
 				
 			case 2:		// T0
@@ -319,14 +332,10 @@ uint16_t cardSendApdu(uint8_t cla, uint8_t ins, uint8_t p1, uint8_t p2, uint8_t 
 		printHexBuf(buf, n);
 	}
 
-	// If there was a receive timeout, SW1:SW2 are probably the last two bytes sent (SKY/VIDEOCRYPT bodge)
+	// If there was a receive timeout, bail
 	if (ntt > 0) {
-		if (n >= 2) {
-			sw = (buf[n-2] << 8) | buf[n-1];
-		} else {
-			// Insufficient bytes received, rx timeout
-			sw = 0xFFFE;
-		}
+		// Insufficient bytes received, rx timeout
+		sw = 0xFFFE;
 	} else {
 		// payload is followed by SW1:SW2
 		val = scReadByte(APDU_RX_TIMEOUT);	// FIXME need to figure out what the byte timeout should be
@@ -350,4 +359,16 @@ done:
 	scSerial.stopListening();
 	
 	return sw;
+}
+
+// Get card convention (autodetected during ATR)
+bool scGetInverseConvention(void)
+{
+	return gInverseConvention;
+}
+
+// Set card convention (do this after ATR)
+void scSetInverseConvention(bool inv)
+{
+	gInverseConvention = inv;
 }
