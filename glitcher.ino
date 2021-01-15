@@ -14,11 +14,6 @@
 // gotta go fast!
 #pragma GCC optimize ("-O3")
 
-// Configuration options
-// Enable VideoCrypt decoder emulation command
-#define ENABLE_VC_DECOEM
-
-
 #include "hardware.h"
 #include "smartcard.h"
 #include "utils.h"
@@ -46,82 +41,45 @@ bool gCardPowerOn = false;
 // Debug enable/disable for SCAN
 bool gScanDebug = false;
 
-
-
-/*
-void scSendByte(const byte val)
-{
-	// calculate parity
-	byte parity = 0;
-	byte n = val;
-	while (n) {
-		parity = !parity;
-		n = n & (n-1);
-	}
-
-	// prepare to send
-	n=val;
-
-	// send start bit
-	SCDATA(0);
-	_delay_loop_2(372);	// 1 etu (4 cycles per iteration)
-
-	// send data bits -- inverse convention
-	for (byte i=0; i<8; i++) {
-		SCDATA((n & 0x80) == 0);
-		n <<= 1;
-		_delay_loop_2(372);
-	}
-
-	// send parity bit
-	SCDATA(parity);
-	_delay_loop_2(372);	// 1 etu (4 cycles per iteration)
-
-	// send stop bits
-	// TODO card can pull low half way thru for 1 or 2 bits in order to indicate parity error -- we should retry
-	SCDATA(1);
-	_delay_loop_2(372);	// 1 etu (4 cycles per iteration)
-	_delay_loop_2(372);	// 1 etu (4 cycles per iteration)
-}
-
-
-// TODO scReadByte with timeout
-*/
-
+// ATR buffer
+uint8_t atr[32];
+uint8_t atrLen = 0;
 
 /**
  * Utility function: power on the card and display the ATR.
  * 
  * Used by the 'on' and 'reset' commands
  */
-void doResetAndATR(void)
+void doResetAndATR(bool silent=false)
 {
 	///////
 	// POWER UP AND GET ATR
 
 	cardPower(0);
 
-	Serial.println("Card powering up...");
+	if (!silent) {
+		Serial.println(F("Card powering up..."));
+	}
 	cardPower(1);
 
 	// wait max of 12ms for ATR
-	uint8_t atr[32];
-	uint8_t atrLen;
 	atrLen = cardGetAtr(atr);
 
-	Serial.print("ATR Len=");
-	Serial.print(atrLen);
-	Serial.println(" bytes");
+	if (!silent) {
+		Serial.print(F("ATR Len="));
+		Serial.print(atrLen);
+		Serial.println(F(" bytes"));
+		
+		Serial.print(F("ATR: "));
+		printHexBuf(atr, atrLen);
+		Serial.println();
 	
-	Serial.print("ATR: ");
-	printHexBuf(atr, atrLen);
-	Serial.println();
-
-	Serial.print("Convention: ");
-	Serial.println(scGetInverseConvention() ? "Inverse" : "Direct");
-
-	Serial.println();
-	Serial.println();
+		Serial.print(F("Convention: "));
+		Serial.println(scGetInverseConvention() ? F("Inverse") : F("Direct"));
+	
+		Serial.println();
+		Serial.println();
+	}
 
 	gCardPowerOn = true;
 }
@@ -136,13 +94,13 @@ void doSerialNumber(uint8_t *pIssue = NULL, unsigned long *pSerial = NULL)
 	uint16_t sw1sw2;
 
 	if (!gCardPowerOn) {
-		Serial.println("Card power is off.");
+		Serial.println(F("Card power is off."));
 		return;
 	}
 
 	// read serial number
 	sw1sw2 = cardSendApdu(0x53, 0x70, 0, 0, 6, buf, APDU_RECV);
-	Serial.print("Card issue:  ");
+	Serial.print(F("Card issue:  "));
 	Serial.println(buf[0] & 0x0F);
 	
 	unsigned long serial =
@@ -150,9 +108,9 @@ void doSerialNumber(uint8_t *pIssue = NULL, unsigned long *pSerial = NULL)
 		((unsigned long)buf[2] << 16) |
 		((unsigned long)buf[3] << 8)  |
 		((unsigned long)buf[4]);
-	Serial.print("Card serial: ");
+	Serial.print(F("Card serial: "));
 	Serial.print(serial);
-	Serial.println("x");
+	Serial.println(F("x"));		// TODO: Luhn checksum?
 	Serial.println();
 
 	// pass issue and serial back to caller
@@ -178,9 +136,9 @@ void doSerialNumber(uint8_t *pIssue = NULL, unsigned long *pSerial = NULL)
  */
 void handle_off(String *cmdline)
 {
-	Serial.print("Powering off card... ");
+	Serial.print(F("Powering off card... "));
 	cardPower(0);
-	Serial.println("done.");
+	Serial.println(F("done."));
 
 	gCardPowerOn = false;
 }
@@ -197,7 +155,7 @@ void handle_osd(String *cmdline)
 	uint16_t sw1sw2;
 
 	if (!gCardPowerOn) {
-		Serial.println("Card power is off.");
+		Serial.println(F("Card power is off."));
 		return;
 	}
 
@@ -207,16 +165,16 @@ void handle_osd(String *cmdline)
 	uint8_t prio = buf[0] >> 5;
 	uint8_t len  = buf[0] & 0x1F;
 	
-	Serial.print("OSD Priority ");
+	Serial.print(F("OSD Priority "));
 	Serial.print(prio);
-	Serial.print(", ");
+	Serial.print(F(", "));
 	Serial.print(len);
-	Serial.print(" characters");
+	Serial.print(F(" characters"));
 
 	// OSD messages must have a priority of >= 4 to show on clear unencrypted video.
 	// Ref. 8052INFO.TXT [1.1.2].
 	if (prio < 4) {
-		Serial.println(" *HIDDEN*");
+		Serial.println(F(" *HIDDEN*"));
 	} else {
 		Serial.println();
 	}
@@ -224,16 +182,16 @@ void handle_osd(String *cmdline)
 	Serial.print("OSD: [");
 	for (int i=1; i<=len; i++) {
 		if (buf[i] == '\0') {
-			Serial.print(" ");
+			Serial.print(F(" "));
 		} else {
 			Serial.print((char)buf[i]);
 		}
 
 		if (i == 12) {
-			Serial.print("] [");
+			Serial.print(F("] ["));
 		}
 	}
-	Serial.print("]\n");
+	Serial.print(F("]\n"));
 }
 
 
@@ -270,8 +228,8 @@ void handle_scan_debug(String *cmdline)
 		gScanDebug = cmdline->toInt() != 0;
 	}
 	
-	Serial.print("Scan debug is ");
-	Serial.println(gScanDebug ? "on" : "off");
+	Serial.print(F("Scan debug is "));
+	Serial.println(gScanDebug ? F("on") : F("off"));
 }
 
 
@@ -285,21 +243,21 @@ void handle_scan_cla(String *cmdline)
 	////////
 	// CLA/INS SCAN
 
-	uint8_t atrLen;
 	uint8_t buf[256];
 	uint8_t procByte;
-
 	uint8_t startClass;
 	uint8_t endClass;
 
 	if (cmdline->length() == 0) {
-		Serial.println("**ERROR: Need at least a starting classcode");
+		Serial.println(F("**ERROR: Need at least a starting classcode"));
 		return;
 	} else {
 		int ofs;
 		String val = *cmdline;
 
-		Serial.println("CLI: [" + *cmdline + "]");
+		Serial.print(F("CMD: ["));
+		Serial.print(cmdline->c_str());
+		Serial.println(']');
 
 		// Get starting classcode
 		ofs = val.indexOf(' ');
@@ -314,11 +272,11 @@ void handle_scan_cla(String *cmdline)
 
 	doResetAndATR();
 
-	Serial.print("Scanning from classcode 0x");
+	Serial.print(F("Scanning from classcode 0x"));
 	Serial.print(startClass, HEX);
-	Serial.print(" to 0x");
+	Serial.print(F(" to 0x"));
 	Serial.print(endClass, HEX);
-	Serial.println(" inclusive.\n");
+	Serial.println(F(" inclusive.\n"));
 
 	String reason = "";
 
@@ -329,7 +287,7 @@ void handle_scan_cla(String *cmdline)
 		for (int ins=0; ins<=0xFF; ins += 2) {
 			// INS is only valid if LSBit = 0 and MSN is not 6 or 9
 			if ( ((ins >> 4) == 6) || ((ins >> 4) == 9) || (ins & 1)) {
-				//Serial.print("skipping invalid INS ");
+				//Serial.print(F("skipping invalid INS "));
 				//Serial.println(ins, HEX);
 				continue;
 			}
@@ -342,12 +300,7 @@ void handle_scan_cla(String *cmdline)
 
 			if (sw1sw2 >= 0xFFF0) {
 				reason = " (comms err, rebooting card) ";
-				// reset and ATR, comms error
-				scReset(true);
-				delay(10);
-				scReset(false);
-				atrLen = cardGetAtr(buf);
-				delay(10);
+				doResetAndATR(true);
 			} else if (sw1sw2 == 0x6D00) {
 				//reason = " (bad ins)";
 			} else {
@@ -361,14 +314,14 @@ void handle_scan_cla(String *cmdline)
 			}
 
 			if (reason.length() > 0) {
-				Serial.print("CLA/INS ");
+				Serial.print(F("CLA/INS "));
 				Serial.print(cla, HEX);
 				Serial.print('/');
 				Serial.print(ins, HEX);
-				Serial.print(" -- sw1sw2=");
+				Serial.print(F(" -- sw1sw2="));
 				Serial.print(sw1sw2, HEX);
 				Serial.print(reason);
-				Serial.print("Proc=");
+				Serial.print(F("Proc="));
 				printHex(procByte);
 				Serial.println();
 
@@ -379,7 +332,7 @@ void handle_scan_cla(String *cmdline)
 			delay(50);
 		}
 	}
-	Serial.println("\nAll done.");
+	Serial.println(F("\nAll done."));
 }
 
 
@@ -393,38 +346,40 @@ void handle_scan_len(String *cmdline)
 	////////
 	// LENGTH SCAN
 
-	uint8_t atrLen;
 	uint8_t buf[256];
 	uint8_t procByte;
 
 	uint8_t cla;
 	uint8_t ins;
 
+	Serial.print(F("CMD: ["));
+	Serial.print(cmdline->c_str());
+	Serial.println(']');
+
 	if (cmdline->length() == 0) {
-		Serial.println("**ERROR: Syntax = scanlen <cla> <ins>");
+		Serial.println(F("**ERROR E100: Syntax = scanlen <cla> <ins>"));
 		return;
 	} else {
 		int ofs;
-		String val = *cmdline;
 
 		// Get class
-		ofs = val.indexOf(' ');
+		ofs = cmdline->indexOf(' ');
 		if (ofs == -1) {
-			Serial.println("**ERROR: Syntax = scanlen <cla> <ins>");
+			Serial.println(F("**ERROR E101: Syntax = scanlen <cla> <ins>"));
 			return;
 		} else {
-			cla = strtol(val.substring(0, ofs).c_str(), NULL, 16);
-			ins = strtol(val.substring(ofs+1).c_str(), NULL, 16);
+			cla = strtol(cmdline->substring(0, ofs).c_str(), NULL, 16);
+			ins = strtol(cmdline->substring(ofs+1).c_str(), NULL, 16);
 		}
 	}
 
 	doResetAndATR();
 
-	Serial.print("Scanning valid lengths for CLA 0x");
+	Serial.print(F("Scanning valid lengths for CLA 0x"));
 	printHex(cla);
-	Serial.print(" INS 0x");
+	Serial.print(F(" INS 0x"));
 	printHex(ins);
-	Serial.println(".");
+	Serial.println(F("."));
 
 	String reason = "";
 
@@ -439,12 +394,7 @@ void handle_scan_len(String *cmdline)
 		
 		if (sw1sw2 >= 0xFFF0) {
 			reason = " (comms err, rebooting card) ";
-			// reset and ATR, comms error
-			scReset(true);
-			delay(10);
-			scReset(false);
-			atrLen = cardGetAtr(buf);
-			delay(10);
+			doResetAndATR(true);
 		} else if (sw1sw2 == 0x6D00) {
 			//reason = " (bad ins)";
 		} else {
@@ -494,11 +444,11 @@ void handle_scan_len(String *cmdline)
 		delay(50);
 	}
 	
-	Serial.println("\nAll done.");
+	Serial.println(F("\nAll done."));
 }
 
 
-#ifdef ENABLE_VC_DECOEM
+
 /**
  * Command handler: decoem
  * 
@@ -506,13 +456,13 @@ void handle_scan_len(String *cmdline)
  * VideoCrypt Decoder Emulator
  */
 
-static const uint8_t MSG_P7[] = {
+static const PROGMEM uint8_t MSG_P7[] = {
     0xf8, 0x3f, 0x22, 0x35, 0xad, 0x32, 0x0c, 0xb6,   /* a 07 message */
     0xfb, 0x62, 0x10, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9,
     0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9,
     0xf9, 0xf9, 0xf9, 0x54, 0xd5, 0x00, 0x25, 0x86	
 };
-static const uint8_t MSG_P9[] = {
+static const PROGMEM uint8_t MSG_P9[] = {
 	0xe8, 0x43, 0x66, 0x3e, 0xc6, 0x1a, 0x0c, 0x9f,   /* a 09 message */
     0x8f, 0x32, 0x6d, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c,
     0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c, 0x6c,
@@ -524,9 +474,11 @@ void handle_decoem(String *cmdline)
 {
 	const bool debug = false;
 	bool ok = false;
-	uint8_t msg[32];
-	uint8_t answ[8];
-	uint8_t msgprev[16];
+
+    uint8_t msg[32];
+    uint8_t answ[8];
+    uint8_t msgprev[16];
+	
 	uint8_t cardIssue;
 
 	if (!gCardPowerOn) {
@@ -534,13 +486,13 @@ void handle_decoem(String *cmdline)
 		return;
 	}
 	
-	Serial.println("DecoEm -- Videocrypt decoder emulator\n\n");
+	Serial.println(F("DecoEm -- Videocrypt decoder emulator\n\n"));
 
-	// read card serial number
+	// read and print card serial number
 	doSerialNumber(&cardIssue);
 
 	// CMD 0x72 -- send message from previous card
-	Serial.println("CMD72 (Message from Old Card) -->");
+	Serial.println(F("CMD72 (Message from Old Card) -->"));
 	memset(msgprev, '\0', sizeof(msgprev));
 	cardSendApdu(0x53, 0x72, 0, 0, 16, msgprev, APDU_SEND, NULL, debug);
 
@@ -549,23 +501,23 @@ void handle_decoem(String *cmdline)
 	// CMD 0x74 -- Send Message
 	switch (cardIssue) {
 		case 7:
-			memcpy(msg, MSG_P7, sizeof(msg));
+			memcpy_P(msg, MSG_P7, sizeof(msg));
 			ok = true;
 			break;
 
 		case 9:
-			memcpy(msg, MSG_P9, sizeof(msg));
+			memcpy_P(msg, MSG_P9, sizeof(msg));
 			ok = true;
 			break;
 
 		default:
-			Serial.println("Sorry, I don't have a CMD74 for this card issue.");
+			Serial.println(F("Sorry, I don't have a CMD74 for this card issue."));
 			ok = false;
 			break;
 	}
 
 	if (ok) {
-		Serial.print("CMD74 (Issue ");
+		Serial.print(F("CMD74 (Issue "));
 		Serial.print(cardIssue);
 		Serial.println(") -->");
 		cardSendApdu(0x53, 0x74, 0, 0, 32, msg, APDU_SEND, NULL, debug);
@@ -574,7 +526,7 @@ void handle_decoem(String *cmdline)
 	// CMD 0x76 AUTHORIZE -- not sent if Authorize not pressed, doesn't really do anything
 
 	// CMD 0x78 -- VIDEOCRYPT READ SEED
-	Serial.println("CMD78 READ SEED -->");
+	Serial.println(F("CMD78 READ SEED -->"));
 	cardSendApdu(0x53, 0x78, 0, 0, 8, answ, APDU_RECV, NULL, debug);
 	printHexBuf(answ, 8);
 	Serial.println();
@@ -583,12 +535,44 @@ void handle_decoem(String *cmdline)
 	handle_osd(NULL);
 
 	// CMD 0x7C -- READ MESSAGE FOR NEXT CARD
-	Serial.println("CMD7C READ MESSAGE FOR NEXT CARD -->");
+	Serial.println(F("CMD7C READ MESSAGE FOR NEXT CARD -->"));
 	cardSendApdu(0x53, 0x7c, 0, 0, 16, msgprev, APDU_RECV, NULL, debug);
 	printHexBuf(msgprev, 16);
 	Serial.println();
 }
-#endif
+
+
+void handle_vcsecret(String *cmdline)
+{
+	uint8_t buf[256];
+	const bool debug = true;
+	const uint8_t SECRET_CLA = ~0x53;
+
+	if (!gCardPowerOn) {
+		Serial.println(F("Card power is off."));
+		return;
+	}
+	
+	Serial.println(F("VideoCrypt secret commands test\n\n"));
+
+	// read and print card serial number
+	doSerialNumber();
+
+	Serial.print(F("CMD F0 (Read Checksum), P2=0 --> "));
+	cardSendApdu(SECRET_CLA, 0xF0, 0, 0, 2, buf, APDU_RECV, NULL, debug);
+	printHexBuf(buf, 2);
+	Serial.println();
+	uint16_t sum_a = ((uint16_t)buf[0] << 8) | buf[1];
+
+	Serial.print(F("CMD F0 (Read Checksum), P2=1 --> "));
+	cardSendApdu(SECRET_CLA, 0xF0, 0, 1, 2, buf, APDU_RECV, NULL, debug);
+	printHexBuf(buf, 2);
+	Serial.println();
+	uint16_t sum_b = ((uint16_t)buf[0] << 8) | buf[1];
+	
+	Serial.print(F("Delta checksum: "));
+	Serial.println(sum_a - sum_b, HEX);	
+}
 
 /************************************************************
  * MAIN MENU
@@ -596,7 +580,7 @@ void handle_decoem(String *cmdline)
 
 // command definition entry
 typedef struct {
-	const char *cmd;
+	const char *cmd PROGMEM;
 	void (*callback)(String *s);
 } CMD;
 
@@ -612,9 +596,8 @@ const CMD COMMANDS[] = {
 	
 	{ "vcserial",	handle_serial },		// VC: Read serial number and card issue
 	{ "vcosd",		handle_osd },			// VC: Read OSD
-#ifdef ENABLE_VC_DECOEM
 	{ "vcdecoem",	handle_decoem },		// VC: Decoder emulation
-#endif
+	{ "vcsecret",	handle_vcsecret },		// VC: Secret command test
 	{ "", NULL }
 };
 
@@ -622,15 +605,15 @@ void menu(void)
 {
 	const CMD *p = COMMANDS;
 
-	Serial.println("\nCommand list:");
+	Serial.println(F("\nCommand list:"));
 	while (p->callback != NULL) {
-		Serial.print("   [");
+		Serial.print(F("   ["));
 		Serial.print(p->cmd);
-		Serial.println("]");
+		Serial.println(']');
 		p++;
 	}
 
-	Serial.print("\n> ");
+	Serial.print(F("\n> "));
 
 	while (Serial.available() == 0) {} 
 	String s = Serial.readStringUntil('\n');
@@ -670,7 +653,9 @@ void menu(void)
 	if (p->callback != NULL) {
 		p->callback(&s);
 	} else {
-		Serial.println("Bad command '" + cmp + "'");
+		Serial.print(F("Bad command '"));
+		Serial.print(cmp);
+		Serial.println('\'');
 	}
 }
 
@@ -692,7 +677,7 @@ void setup() {
 	cardPower(0);
 
 
-	Serial.println(">> GLITCHER " __DATE__ " " __TIME__ );
+	Serial.println(F(">> GLITCHER " __DATE__ " " __TIME__ ));
 
 	// init card serial port
 	cardInit();	
@@ -707,10 +692,11 @@ void loop() {
 	// put your main code here, to run repeatedly:
 
 	menu();
-	return;
-	
-#if 0
+}
 
+
+#if 0
+void glitchtest() {
 	/*
 	  Serial.println("blink\n");
 
@@ -721,7 +707,7 @@ void loop() {
 	*/
 
   
-	//Serial.println("glitch");
+	//Serial.println(F("glitch"));
 
 	digitalWrite(LED_PIN, HIGH);
 
@@ -776,5 +762,6 @@ void loop() {
 
 	// interrupts on
 	interrupts();
-#endif
 }
+
+#endif
