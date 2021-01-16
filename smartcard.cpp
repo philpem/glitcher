@@ -108,6 +108,16 @@ void scWriteByte(uint8_t b)
 // debug: trigger the scope on the first ATR byte
 #define ATR_SCOPE_TRIG_FIRSTBYTE
 
+
+typedef enum {
+	ATRS_TS,
+	ATRS_T0,
+	ATRS_TA,
+	ATRS_TB,
+	ATRS_TC,
+	ATRS_TD,
+} ATR_STATE;
+
 /**
  * Get the ATR from the card.
  * 
@@ -118,6 +128,9 @@ int cardGetAtr(uint8_t *buf)
 	int val;
 	int n = 0;
 	int atrLen = 2;		// TS and T0 are mandatory
+	ATR_STATE state = ATRS_TS;
+	uint8_t histLen = 0;
+	uint8_t tdFlags = 0;
 
 	// overall timeout. ISO7816 says ATR should start transmitting after max 20ms
 	//  = 40,000 clock cycles
@@ -160,22 +173,51 @@ int cardGetAtr(uint8_t *buf)
 		atrWait += 5;
 
 		// ATR decode
-		switch (n) {
-			case 1:		// TS
-						// 0x3F (sent inv. conv.) == inverse convention
-						// 0x3B (sent dir. conv.) == direct convention
-				// TODO: Check the ATR TS byte is valid?
+		switch (state) {
+			case ATRS_TS:		// TS
+				// This is handled above. Next byte should be T0
+				state = ATRS_T0;
 				break;
-				
-			case 2:		// T0
-				// TA1, TB1, TC1, TD1 presence bits
+
+			case ATRS_T0:		// T0 or TD
+			case ATRS_TD:
+				// TAn, TBn, TCn, TDn presence bits -- in T0 and TDn
+				// save the TDn flag and adjust the ATR length
+				tdFlags = val;
 				if (val & 0x10) atrLen++;
 				if (val & 0x20) atrLen++;
 				if (val & 0x40) atrLen++;
 				if (val & 0x80) atrLen++;
-				
-				// historical character length
-				atrLen += (val & 0x0F);
+
+				// historical character length -- only in T0
+				if (state == ATRS_T0) {
+					histLen = (val & 0x0F);
+					atrLen += histLen;
+				}
+
+				// next byte will be...
+				if (tdFlags & 0x10) {
+					state = ATRS_TA;
+				} else if (tdFlags & 0x20) {
+					state = ATRS_TB;
+				} else if (tdFlags & 0x40) {
+					state = ATRS_TC;
+				} else if (tdFlags & 0x80) {
+					state = ATRS_TD;
+				}
+				break;
+
+			case ATRS_TA:
+			case ATRS_TB:
+			case ATRS_TC:
+				// advance
+				if ((val & 0x10) && (state < ATRS_TB)) {
+					state = ATRS_TB;
+				} else if ((val & 0x20) && (state < ATRS_TC)) {
+					state = ATRS_TC;
+				} else if ((val & 0x40) && (state < ATRS_TD)) {
+					state = ATRS_TD;
+				}
 				break;	
 		}
 	}
