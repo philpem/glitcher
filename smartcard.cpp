@@ -19,6 +19,12 @@ static bool gInverseConvention = false;
 // Guard time. 372(etudiv) / 3.579545MHz = ~104us
 const unsigned int GUARDTIME = (104*5);
 
+// Card clock rate
+#define CARD_CLOCK_HZ (3579545)
+
+// Initial ATR baud rate. Always 372 clocks per Etu.
+#define ATR_BAUD (CARD_CLOCK_HZ / 372)
+
 
 /**
  * Convert inverse-convention to direct-convention
@@ -38,7 +44,7 @@ static uint8_t _inverse(const uint8_t val)
 void cardInit(void)
 {
 	// init smartcard serial
-	scSerial.begin(9600, ODD, 2);	// 9600bd 8O2, defaults to listening
+	scSerial.begin(ATR_BAUD, ODD, 2);	// 9600bd 8O2, defaults to listening
 
 	// turn listening off
 	scSerial.stopListening();
@@ -125,18 +131,23 @@ typedef enum {
  */
 int cardGetAtr(uint8_t *buf)
 {
-	int val;
-	int n = 0;
-	int atrLen = 2;		// TS and T0 are mandatory
-	ATR_STATE state = ATRS_TS;
-	uint8_t histLen = 0;
-	uint8_t tdFlags = 0;
+	int val;					// current incoming data byte
+	int n = 0;					// byte count
+	int atrLen = 2;				// TS and T0 are mandatory
+	ATR_STATE state = ATRS_TS;	// ATR state machine state variable
+	uint8_t histLen = 0;		// historical character length
+	uint8_t tdFlags = 0;		// flags from most recent TDn
+	uint8_t atr_ta;				// TA1 value
+	bool atr_has_ta = false;	// has TA1? (atr_ta is valid)
 
 	// overall timeout. ISO7816 says ATR should start transmitting after max 20ms
 	//  = 40,000 clock cycles
 	//  = 11.17ms at 3.579545MHz
 	// (we double this for safety)
-	unsigned long atrWait = millis() + 20;
+	unsigned long atrWait = millis() + 50;
+
+	// reset to ATR baud rate
+	scSerial.begin(ATR_BAUD, ODD, 2);	// 9600bd 8O2, defaults to listening
 
 	// start listening for ATR data
 	scSerial.listen();
@@ -208,17 +219,48 @@ int cardGetAtr(uint8_t *buf)
 				break;
 
 			case ATRS_TA:
+				if (!atr_has_ta) {
+					atr_ta = val;
+					atr_has_ta = true;
+				}
 			case ATRS_TB:
 			case ATRS_TC:
 				// advance
-				if ((val & 0x10) && (state < ATRS_TB)) {
+				if ((tdFlags & 0x10) && (state < ATRS_TB)) {
 					state = ATRS_TB;
-				} else if ((val & 0x20) && (state < ATRS_TC)) {
+				} else if ((tdFlags & 0x20) && (state < ATRS_TC)) {
 					state = ATRS_TC;
-				} else if ((val & 0x40) && (state < ATRS_TD)) {
+				} else if ((tdFlags & 0x40) && (state < ATRS_TD)) {
 					state = ATRS_TD;
 				}
 				break;	
+		}
+	}
+
+	// switch baudrate to match TA
+	if (atr_has_ta) {
+		switch(atr_ta) {
+			case 0x11:
+				// 3.5MHz, 372 Clks/Etu = 9600 Baud, same as ATR rate
+				Serial.println(F("Card baud = 9,600 Baud (372 Etu)"));
+				break;
+
+			case 0x12:
+				// 3.5MHz, 186 Clks/Etu = 18,817 Baud, same as ATR rate
+				Serial.println(F("Card baud = 19,200 Baud (186 Etu)"));
+				scSerial.begin(CARD_CLOCK_HZ / 186, ODD, 2);
+				break;
+
+			case 0x13:
+				// 3.5MHz, 90 Clks/Etu = 38,889 Baud, same as ATR rate
+				Serial.println(F("Card baud = 38,889 Baud (90 Etu)"));
+				scSerial.begin(CARD_CLOCK_HZ / 90, ODD, 2);
+				break;
+
+			default:
+				Serial.print(F("ERROR: Card TA1 value 0x"));
+				Serial.print(atr_ta, HEX);
+				Serial.println(F(" not supported"));
 		}
 	}
 
