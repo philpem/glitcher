@@ -144,7 +144,8 @@ int cardGetAtr(uint8_t *buf)
 	//  = 40,000 clock cycles
 	//  = 11.17ms at 3.579545MHz
 	// (we double this for safety)
-	unsigned long atrWait = millis() + 50;
+	// Increased (again) to 300ms because Cryptoworks cards are slow to start up
+	unsigned long atrWait = millis() + 300;
 
 	// reset to ATR baud rate
 	scSerial.begin(ATR_BAUD, ODD, 2);	// 9600bd 8O2, defaults to listening
@@ -158,6 +159,16 @@ int cardGetAtr(uint8_t *buf)
 		val = scSerial.read();
 		if (val == -1) {
 			continue;
+		}
+
+		// extend wait time for every successful byte received
+		unsigned long now = millis();
+		if (((int32_t)(now) - (int32_t)(atrWait - 10)) > 0) {
+			// ATR wait remaining is less than 10ms, extend to now plus 10ms
+			atrWait = now + 10;
+		} else {
+			// add 10ms to the ATR wait
+			atrWait += 10;
 		}
 
 #ifdef ATR_SCOPE_TRIG_FIRSTBYTE
@@ -179,9 +190,6 @@ int cardGetAtr(uint8_t *buf)
 			}
 		}
 		buf[n++] = val;
-
-		// extend delay
-		atrWait += 5;
 
 		// ATR decode
 		switch (state) {
