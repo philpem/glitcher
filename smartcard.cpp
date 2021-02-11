@@ -163,12 +163,9 @@ int cardGetAtr(uint8_t *buf)
 
 		// extend wait time for every successful byte received
 		unsigned long now = millis();
-		if (((int32_t)(now) - (int32_t)(atrWait - 10)) > 0) {
+		if (timeAfter(now, atrWait - 10)) {
 			// ATR wait remaining is less than 10ms, extend to now plus 10ms
 			atrWait = now + 10;
-		} else {
-			// add 10ms to the ATR wait
-			atrWait += 10;
 		}
 
 #ifdef ATR_SCOPE_TRIG_FIRSTBYTE
