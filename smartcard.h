@@ -13,10 +13,16 @@ void cardInit(void);
 void cardPower(const uint8_t on);
 
 /**
+ * Force card baud rate
+ */
+void cardBaud(const uint32_t baud);
+
+
+/**
  * Get the ATR from the card.
  * 
  * @param[out]	buf		Storage buffer. ATR will be stored here.
- * @return 
+ * @return Number of ATR bytes
  */
 int cardGetAtr(uint8_t *buf);
 

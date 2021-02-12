@@ -9,21 +9,25 @@
 #define APDU_DEBUG_DATA
 
 
-// Smartcard serial port
-SoftwareSerialParity scSerial(CARD_DATA_RX_PIN, CARD_DATA_TX_PIN);
-
-
-// Byte convention -- TRUE for inverse, FALSE for direct
-static bool gInverseConvention = false;
-
-// Guard time. 372(etudiv) / 3.579545MHz = ~104us
-const unsigned int GUARDTIME = (104*5);
-
 // Card clock rate
 #define CARD_CLOCK_HZ (3579545)
 
 // Initial ATR baud rate. Always 372 clocks per Etu.
 #define ATR_BAUD (CARD_CLOCK_HZ / 372)
+
+
+// Guard time. 372(etudiv) / 3.579545MHz = ~104us
+const unsigned int GUARDTIME = (104*5);
+
+
+// Smartcard serial port
+SoftwareSerialParity scSerial(CARD_DATA_RX_PIN, CARD_DATA_TX_PIN);
+
+// Byte convention -- TRUE for inverse, FALSE for direct
+static bool gInverseConvention = false;
+
+// Current smartcard baud rate
+static uint32_t gBaudRate = ATR_BAUD;
 
 
 /**
@@ -44,7 +48,8 @@ static uint8_t _inverse(const uint8_t val)
 void cardInit(void)
 {
 	// init smartcard serial
-	scSerial.begin(ATR_BAUD, ODD, 2);	// 9600bd 8O2, defaults to listening
+	// 9600bd 8O2, defaults to listening
+	cardBaud(ATR_BAUD);
 
 	// turn listening off
 	scSerial.stopListening();
@@ -76,6 +81,16 @@ void cardPower(const uint8_t on)
 }
 
 
+void cardBaud(const uint32_t baud)
+{
+	// Direct convention uses even parity
+	// Inverse convention uses odd parity
+	scSerial.begin(baud, gInverseConvention ? ODD : EVEN, 2);
+	gBaudRate = baud;
+}
+
+
+
 /**
  * Read byte from smartcard
  */
@@ -102,7 +117,7 @@ int scReadByte(int timeout_ms)
  */
 void scWriteByte(uint8_t b)
 {
-	// TODO if Direct convention, send without inverting byte/bit convention
+	// If Direct convention, send without inverting byte/bit convention
 	if (gInverseConvention) {
 		scSerial.write(_inverse(b));
 	} else {
@@ -112,9 +127,9 @@ void scWriteByte(uint8_t b)
 
 
 // debug: trigger the scope on the first ATR byte
-#define ATR_SCOPE_TRIG_FIRSTBYTE
+//#define ATR_SCOPE_TRIG_FIRSTBYTE
 
-
+// ATR state machine states
 typedef enum {
 	ATRS_TS,
 	ATRS_T0,
@@ -124,11 +139,6 @@ typedef enum {
 	ATRS_TD,
 } ATR_STATE;
 
-/**
- * Get the ATR from the card.
- * 
- * TODO: ATR should set up card convention, guard time, etc.
- */
 int cardGetAtr(uint8_t *buf)
 {
 	int val;					// current incoming data byte
@@ -144,11 +154,12 @@ int cardGetAtr(uint8_t *buf)
 	//  = 40,000 clock cycles
 	//  = 11.17ms at 3.579545MHz
 	// (we double this for safety)
-	// Increased (again) to 300ms because Cryptoworks cards are slow to start up
-	unsigned long atrWait = millis() + 300;
+	// Increased (again!!!) to 500ms because Cryptoworks cards are slow to start up
+	//   CW ROM 01 and 03 take 300ms... 05 takes almost a full second!
+	unsigned long atrWait = millis() + 1000;
 
 	// reset to ATR baud rate
-	scSerial.begin(ATR_BAUD, ODD, 2);	// 9600bd 8O2, defaults to listening
+	cardBaud(ATR_BAUD);
 
 	// start listening for ATR data
 	scSerial.listen();
@@ -183,7 +194,7 @@ int cardGetAtr(uint8_t *buf)
 				// 0x23: 0x3B sent as Direct Convention, but we're in Inverse Convention
 				// Fix the value then change the card convention.
 				val = _inverse(val);
-				gInverseConvention = !gInverseConvention;
+				scSetInverseConvention(!gInverseConvention);
 			}
 		}
 		buf[n++] = val;
@@ -244,28 +255,35 @@ int cardGetAtr(uint8_t *buf)
 
 	// switch baudrate to match TA
 	if (atr_has_ta) {
-		switch(atr_ta) {
-			case 0x11:
-				// 3.5MHz, 372 Clks/Etu = 9600 Baud, same as ATR rate
-				Serial.println(F("Card baud = 9,600 Baud (372 Etu)"));
-				break;
+		const uint16_t DI_TABLE[16] = { 0, 1, 2, 4, 8, 16, 32, 64, 12, 20, 0, 0, 0, 0, 0, 0 };
+		const uint16_t FI_TABLE[16] = { 372, 372, 558, 744, 1116, 1488, 1860, 0, 0, 512, 768, 1024, 1536, 2048, 0, 0 };
+		const uint8_t  FREQ_TABLE[16] = { 40, 50, 60, 80, 120, 160, 200, 0, 0, 50, 75, 100, 150, 200 };		// MHz * 10
 
-			case 0x12:
-				// 3.5MHz, 186 Clks/Etu = 18,817 Baud, same as ATR rate
-				Serial.println(F("Card baud = 19,200 Baud (186 Etu)"));
-				scSerial.begin(CARD_CLOCK_HZ / 186, ODD, 2);
-				break;
+		uint16_t di = DI_TABLE[atr_ta & 0x0F];
+		uint16_t fi = FI_TABLE[(atr_ta >> 4) & 0x0F];
+		uint8_t  freq = FREQ_TABLE[(atr_ta >> 4) & 0x0F];
+		uint32_t baud;
 
-			case 0x13:
-				// 3.5MHz, 90 Clks/Etu = 38,889 Baud, same as ATR rate
-				Serial.println(F("Card baud = 38,889 Baud (90 Etu)"));
-				scSerial.begin(CARD_CLOCK_HZ / 90, ODD, 2);
-				break;
-
-			default:
-				Serial.print(F("ERROR: Card TA1 value 0x"));
-				Serial.print(atr_ta, HEX);
-				Serial.println(F(" not supported"));
+		if ((di == 0) || (fi == 0)) {
+			Serial.print(F("ERROR: Card has invalid Ta1=0x"));
+			Serial.println(atr_ta, HEX);
+		} else {
+ 			baud = (CARD_CLOCK_HZ * di) / fi;
+ 			Serial.print(F("Card TA1 config: TA1=0x"));
+ 			Serial.print(atr_ta, HEX);
+ 			Serial.print(F(" Di="));
+ 			Serial.print(di);
+ 			Serial.print(F(" Fi="));
+ 			Serial.print(fi);
+ 			Serial.print(F(" Fclk(max)="));
+ 			Serial.print(freq / 10);
+ 			Serial.print('.');
+ 			Serial.print(freq % 10);
+ 			Serial.print(F(" MHz -- Etu/clk="));
+ 			Serial.print(fi / di);
+ 			Serial.print(F("; calculated Baud="));
+ 			Serial.println(baud);
+ 			cardBaud(baud);
 		}
 	}
 
@@ -462,4 +480,5 @@ bool scGetInverseConvention(void)
 void scSetInverseConvention(bool inv)
 {
 	gInverseConvention = inv;
+	cardBaud(gBaudRate);
 }
