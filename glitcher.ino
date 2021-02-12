@@ -18,6 +18,7 @@
 #include "smartcard.h"
 #include "utils.h"
 #include "videocrypt.h"
+#include "cryptoworks.h"
 
 //
 // next task -- 
@@ -358,23 +359,27 @@ void handle_scan_len(String *cmdline)
 // command definition entry
 typedef struct {
 	const char *cmd PROGMEM;
+	const char *descr PROGMEM;
 	void (*callback)(String *s);
 } CMD;
 
 // command definitions
 const CMD COMMANDS[] = {
-	{ "off",		handle_off },			// Card power off
-	{ "on",			handle_reset },			// Power on, Reset and ATR
-	{ "reset",		handle_reset },			// Power on, Reset and ATR
+	{ "off",		"Card power off",					handle_off },			// Card power off
+	{ "on",			"Card power on",					handle_reset },			// Power on, Reset and ATR
+	{ "reset",		"Card power on (alias of 'on')",	handle_reset },			// Power on, Reset and ATR
 	
-	{ "scandebug",	handle_scan_debug },	// scandebug <n> --> debug on/off
-	{ "scancla",	handle_scan_cla },		// Scan for classcodes
-	{ "scanlen",	handle_scan_len },		// Scan valid data lengths for command
+	{ "scandebug",	"param 0/1: scan debugging off/on",	handle_scan_debug },	// scandebug <n> --> debug on/off
+	{ "scancla",	"Scan classcodes",					handle_scan_cla },		// Scan for classcodes
+	{ "scanlen",	"Scan instruction lengths",			handle_scan_len },		// Scan valid data lengths for command
 	
-	{ "vcserial",	handle_vcserial },		// VC: Read serial number and card issue
-	{ "vcosd",		handle_vcosd },			// VC: Read OSD
-	{ "vcdecoem",	handle_vcdecoem },		// VC: Decoder emulation
-	{ "vcsecret",	handle_vcsecret },		// VC: Secret command test
+	{ "vcserial",	"VideoCrypt: card serial number",	handle_vcserial },		// VC: Read serial number and card issue
+	{ "vcosd",		"VideoCrypt: read OSD",				handle_vcosd },			// VC: Read OSD
+	{ "vcdecoem",	"VideoCrypt: decoder emulation",	handle_vcdecoem },		// VC: Decoder emulation
+	{ "vcsecret",	"VideoCrypt: secret command test",	handle_vcsecret },		// VC: Secret command test
+
+	{ "cwinfo",		"CryptoWorks: card information",	handle_cwinfo },
+	
 	{ "", NULL }
 };
 
@@ -384,9 +389,20 @@ void menu(void)
 
 	Serial.println(F("\nCommand list:"));
 	while (p->callback != NULL) {
-		Serial.print(F("   ["));
+		Serial.print(F("   "));
+
+		// command name padded to 20 characters
 		Serial.print(p->cmd);
-		Serial.println(']');
+		int pad = 20 - strlen(p->cmd);
+		if (pad > 0) {
+			for (int i=0; i<pad; i++) {
+				Serial.print(' ');		
+			}
+		}
+
+		// command description
+		Serial.println(p->descr);
+
 		p++;
 	}
 
