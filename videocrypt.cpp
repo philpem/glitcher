@@ -19,6 +19,17 @@ static void doSerialNumber(uint8_t *pIssue = NULL, unsigned long *pSerial = NULL
 */
 	// read serial number
 	sw1sw2 = cardSendApdu(0x53, 0x70, 0, 0, 6, buf, APDU_RECV);
+
+	if (sw1sw2 != 0x9000) {
+		Serial.print(F("ERROR!!! Read Serial Number command failed, SW="));
+		Serial.println(sw1sw2, HEX);
+		return;
+	}
+
+	Serial.print(F("Hex data:    "));
+	printHexBuf(buf, 6);
+	Serial.println();
+	
 	Serial.print(F("Card issue:  "));
 	Serial.println(buf[0] & 0x0F);
 	
@@ -29,7 +40,7 @@ static void doSerialNumber(uint8_t *pIssue = NULL, unsigned long *pSerial = NULL
 		((unsigned long)buf[4]);
 	Serial.print(F("Card serial: "));
 	Serial.print(serial);
-	Serial.println(F("x"));		// TODO: Luhn checksum?
+	Serial.println(F("*"));		// TODO: Luhn checksum?
 	Serial.println();
 
 	// pass issue and serial back to caller
