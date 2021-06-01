@@ -1,6 +1,9 @@
+#include "config.h"
 #include "hardware.h"
 #include "smartcard.h"
 #include "utils.h"
+
+#ifdef ENABLE_CRYPTOWORKS
 
 static void debugtraffic(uint16_t sw1sw2, uint8_t *buf, size_t len)
 {
@@ -216,3 +219,5 @@ void handle_cwinfo(String *cmdline)
 	}
 	Serial.println(i);
 }
+
+#endif // ENABLE_CRYPTOWORKS

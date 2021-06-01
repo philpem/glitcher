@@ -14,6 +14,7 @@
 // gotta go fast!
 #pragma GCC optimize ("-O3")
 
+#include "config.h"
 #include "hardware.h"
 #include "smartcard.h"
 #include "utils.h"
@@ -206,6 +207,8 @@ void handle_scan_cla(String *cmdline)
 				doResetAndATR(true);
 			} else if (sw1sw2 == 0x6D00) {
 				//reason = " (bad ins)";
+			} else if (sw1sw2 == 0x6E00) {
+				reason = " (bad cla)";
 			} else {
 				reason = " FOUND";
 
@@ -233,6 +236,11 @@ void handle_scan_cla(String *cmdline)
 
 			// Sky card requires 10ms between commands
 			delay(50);
+
+			// If we got a Bad Class response, move to the next class
+			if (sw1sw2 == 0x6E00) {
+				break;
+			}
 		}
 	}
 	Serial.println(F("\nAll done."));
@@ -351,6 +359,155 @@ void handle_scan_len(String *cmdline)
 }
 
 
+/****************
+ * SLE
+ */
+
+#define	SLE_READ_MAIN_MEMORY		0x30
+#define	SLE_UPDATE_MAIN_MEMORY		0x38
+#define	SLE_READ_PROTECTION_MEMORY	0x34
+#define	SLE_WRITE_PROTECTION_MEMORY	0x3C
+
+#define SLE_READ_SECURITY_MEMORY	0x31
+#define	SLE_UPDATE_SECURITY_MEMORY	0x39
+#define	SLE_COMPARE_VERIFICATION	0x33
+
+uint8_t sle_read_byte(void)
+{
+	uint8_t val = 0;
+	
+	for (int i=0; i<8; i++) {
+		val >>= 1;
+		
+		// t17: clock low to I/O valid = 2.5us max, guaranteed by clock setup time
+		val |= (digitalRead(CARD_DATA_RX_PIN)) ? 0x80 : 0x00;
+
+		// clock pulse
+		CLK(1);
+		delayMicroseconds(10);	// t15, clock high time
+		CLK(0);
+		delayMicroseconds(10);	// t16, clock low time
+	}
+
+	return val;
+}
+
+void sle_command(const uint8_t control, const uint8_t addr, const uint8_t data)
+{
+	// start sequence
+	CLK(1);
+	delayMicroseconds(10);	// t2: CLK High to I/O Hold time, min 4us
+	SCDATA(0);
+	delayMicroseconds(10);	// t3: I/O Low to CLK Hold time (Start Condition), min 4us
+	CLK(0);
+
+	/// send some bytes
+	for (int nby=0; nby<3; nby++) {
+		uint8_t val;
+		
+		switch (nby) {
+			case 0: val = control; break;
+			case 1: val = addr; break;
+			case 2: val = data; break;
+		}
+	
+		for (int i=0; i<8; i++) {
+			// t17: clock low to I/O valid = 2.5us max, guaranteed by clock setup time
+			digitalWrite(CARD_DATA_TX_PIN, val & 0x01);
+			val >>= 1;
+
+			delayMicroseconds(10);	// t4: I/O Setup to CLK High time, min 4us
+
+			// clock pulse
+			CLK(1);
+			delayMicroseconds(10);	// t15, clock high time
+			CLK(0);
+			delayMicroseconds(10);	// t16, clock low time
+		}
+	}
+	
+	// stop sequence
+	CLK(1);
+	delayMicroseconds(10);	// t6
+	SCDATA(1);
+	delayMicroseconds(10);	// t15, clock high time
+	CLK(0);
+	delayMicroseconds(10);	// t16, clock low time
+}
+
+/**
+ * Command handler: sle4432
+ * 
+ * SLE4432 ATR and dump
+ */
+void handle_sle4432(String *cmdline)
+{
+	uint8_t buf[256];
+	
+	// Power off, clock freerun off
+	scPower(false);
+	scClockFreerun(false);
+	CLK(0);
+	SCDATA(1);
+
+	
+	// Power on
+	scPower(true);
+	delayMicroseconds(100);	// tPOR
+
+	// Reset -- RST pulse width min 20us typ 50us
+	digitalWrite(CARD_RESET_PIN, HIGH);
+	delayMicroseconds(10);	// t10: RST high to CLK setup time, min 4us
+	CLK(1);
+	delayMicroseconds(30);	// t15: CLK high time, min 9us
+	CLK(0);
+	delayMicroseconds(10);	// t11: CLK low to RST hold, min 4us
+	digitalWrite(CARD_RESET_PIN, LOW);
+
+	delayMicroseconds(10);	// t14: RST low to CLK setup time, min 4us
+
+
+	Serial.print(F("ATR: "));
+	// Read 4 ATR bytes
+	for (int i=0; i<4; i++) {
+		Serial.print(sle_read_byte(), HEX);
+		Serial.print(' ');
+	}
+	Serial.println();
+
+
+	Serial.println(F("SLE_READ_MAIN_MEMORY:"));
+	sle_command(SLE_READ_MAIN_MEMORY, 0, 0);	// READ MAIN MEMORY, addr 0
+	for (uint16_t i=0; i<256; i++) {
+		buf[i] = sle_read_byte();
+
+		if ((i % 16) == 15) {
+			printHexBuf(&buf[i & 0xF0], 16);
+			Serial.println();
+		}
+	}
+	Serial.println();
+
+	Serial.print(F("SLE_READ_PROTECTION_MEMORY:"));
+	sle_command(SLE_READ_PROTECTION_MEMORY, 0, 0);	// READ MAIN MEMORY, addr 0
+	for (uint16_t i=0; i<4; i++) {
+		buf[i] = sle_read_byte();
+	}
+	printHexBuf(buf, 4);
+	Serial.println();
+
+	Serial.print(F("SLE_READ_SECURITY_MEMORY:"));
+	sle_command(SLE_READ_SECURITY_MEMORY, 0, 0);	// READ MAIN MEMORY, addr 0
+	for (uint16_t i=0; i<4; i++) {
+		buf[i] = sle_read_byte();
+	}
+	printHexBuf(buf, 4);
+	Serial.println();
+
+	//SCDATA(0);
+	scPower(false);
+}
+
 
 /************************************************************
  * MAIN MENU
@@ -378,7 +535,11 @@ const CMD COMMANDS[] = {
 	{ "vcdecoem",	"VideoCrypt: decoder emulation",	handle_vcdecoem },		// VC: Decoder emulation
 	{ "vcsecret",	"VideoCrypt: secret command test",	handle_vcsecret },		// VC: Secret command test
 
+#ifdef ENABLE_CRYPTOWORKS
 	{ "cwinfo",		"CryptoWorks: card information",	handle_cwinfo },
+#endif
+
+	{ "sle4432",	"SLE4432: ATR",						handle_sle4432 },
 	
 	{ "", NULL }
 };
