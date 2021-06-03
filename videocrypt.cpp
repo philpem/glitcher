@@ -34,7 +34,7 @@ static void doSerialNumber(uint8_t *pIssue = NULL, unsigned long *pSerial = NULL
 	Serial.println(buf[0] & 0x0F);
 	
 	unsigned long serial =
-		((unsigned long)buf[1] << 24) |
+		((unsigned long)(buf[1] & 0x07) << 24) |		/* AND 0x07 added to deal with some cards which have bit8 set */
 		((unsigned long)buf[2] << 16) |
 		((unsigned long)buf[3] << 8)  |
 		((unsigned long)buf[4]);
@@ -124,6 +124,13 @@ void handle_vcserial(String *cmdline)
  * VideoCrypt Decoder Emulator
  */
 
+static const PROGMEM uint8_t MSG_P6[] = {
+	0xE8, 0x1B, 0x7E, 0x20, 0x87, 0x1E, 0x01, 0x77,
+	0xF0, 0x6E, 0xD2, 0x7F, 0xDD, 0xDD, 0xDD, 0xDD,
+	0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD, 0xDD,
+	0xDD, 0xDD, 0xDD, 0x32, 0x66, 0x3D, 0xD7, 0xF4
+};
+
 static const PROGMEM uint8_t MSG_P7[] = {
     0xf8, 0x3f, 0x22, 0x35, 0xad, 0x32, 0x0c, 0xb6,   /* a 07 message */
     0xfb, 0x62, 0x10, 0xf9, 0xf9, 0xf9, 0xf9, 0xf9,
@@ -147,6 +154,8 @@ void handle_vcdecoem(String *cmdline)
     uint8_t answ[8];
     uint8_t msgprev[16];
 	
+	uint16_t sw;
+	
 	uint8_t cardIssue;
 
 	// TODO: Add card power on state readback from main prog
@@ -157,7 +166,7 @@ void handle_vcdecoem(String *cmdline)
 	}
 */
 	
-	Serial.println(F("DecoEm -- Videocrypt decoder emulator\n\n"));
+	Serial.println(F("Videocrypt decoder emulator\n"));
 
 	// read and print card serial number
 	doSerialNumber(&cardIssue);
@@ -165,12 +174,27 @@ void handle_vcdecoem(String *cmdline)
 	// CMD 0x72 -- send message from previous card
 	Serial.println(F("CMD72 (Message from Old Card) -->"));
 	memset(msgprev, '\0', sizeof(msgprev));
-	cardSendApdu(0x53, 0x72, 0, 0, 16, msgprev, APDU_SEND, NULL, debug);
+	sw = cardSendApdu(0x53, 0x72, 0, 0, 16, msgprev, APDU_SEND, NULL, debug);
+	if (sw != 0x9000) {
+		Serial.print("  **FAILED** sw=");
+		Serial.println(sw, HEX);
+		return;
+	}
 
 	// Main processing loop...
 	
 	// CMD 0x74 -- Send Message
 	switch (cardIssue) {
+		case 1:
+		case 2:
+		case 3:
+		case 4:
+		case 5:
+		case 6:
+			memcpy_P(msg, MSG_P6, sizeof(msg));
+			ok = true;
+			break;
+		
 		case 7:
 			memcpy_P(msg, MSG_P7, sizeof(msg));
 			ok = true;
@@ -191,25 +215,43 @@ void handle_vcdecoem(String *cmdline)
 		Serial.print(F("CMD74 (Issue "));
 		Serial.print(cardIssue);
 		Serial.println(") -->");
-		cardSendApdu(0x53, 0x74, 0, 0, 32, msg, APDU_SEND, NULL, debug);
+		sw = cardSendApdu(0x53, 0x74, 0, 0, 32, msg, APDU_SEND, NULL, debug);
+		
+		if (sw != 0x9000) {
+			Serial.print("  **FAILED** sw=");
+			Serial.println(sw, HEX);
+			return;
+		}
 	}
 
 	// CMD 0x76 AUTHORIZE -- not sent if Authorize not pressed, doesn't really do anything
 
 	// CMD 0x78 -- VIDEOCRYPT READ SEED
 	Serial.println(F("CMD78 READ SEED -->"));
-	cardSendApdu(0x53, 0x78, 0, 0, 8, answ, APDU_RECV, NULL, debug);
-	printHexBuf(answ, 8);
-	Serial.println();
+	sw = cardSendApdu(0x53, 0x78, 0, 0, 8, answ, APDU_RECV, NULL, debug);
+	if (sw != 0x9000) {
+		Serial.print("  **FAILED** sw=");
+		Serial.println(sw, HEX);
+		return;
+	} else {
+		printHexBuf(answ, 8);
+		Serial.println();
+	}
 
 	// CMD 0x7A -- READ OSD
 	handle_vcosd(NULL);
 
 	// CMD 0x7C -- READ MESSAGE FOR NEXT CARD
 	Serial.println(F("CMD7C READ MESSAGE FOR NEXT CARD -->"));
-	cardSendApdu(0x53, 0x7c, 0, 0, 16, msgprev, APDU_RECV, NULL, debug);
-	printHexBuf(msgprev, 16);
-	Serial.println();
+	sw = cardSendApdu(0x53, 0x7c, 0, 0, 16, msgprev, APDU_RECV, NULL, debug);
+	if (sw != 0x9000) {
+		Serial.print("  **FAILED** sw=");
+		Serial.println(sw, HEX);
+		return;
+	} else {
+		printHexBuf(msgprev, 16);
+		Serial.println();
+	}
 }
 
 /**
